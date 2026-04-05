@@ -21,3 +21,21 @@ class RepeaterRequest(BaseModel):
     url: str
     headers: dict[str, str] = {}
     body: str | None = None
+
+
+class RawRepeaterRequest(BaseModel):
+    raw_request: str
+    host: str
+    port: int = 80
+    use_https: bool = False
+
+
+class IntruderConfig(BaseModel):
+    raw_request: str    # raw HTTP request with §markers§ around positions
+    host: str
+    port: int = 80
+    use_https: bool = False
+    attack_type: str = "sniper"   # sniper | cluster_bomb
+    payloads: list[list[str]]     # one list per position
+    concurrency: int = 10
+    timeout: int = 10

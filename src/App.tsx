@@ -13,18 +13,32 @@ import { useAppStore } from '@/stores/app-store'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useScannerStore } from '@/stores/scanner-store'
 import { useReconStore } from '@/stores/recon-store'
+import type { LiveHostResult } from '@/stores/recon-store'
+import { usePipelineStore } from '@/stores/pipeline-store'
 import { wsClient } from '@/api/ws-client'
+import { api } from '@/api/http-client'
 import { API_BASE } from '@/lib/constants'
-import type { HttpFlow, Finding, SubdomainResult } from '@/types'
+import type { HttpFlow, Finding, SubdomainResult, Project, PipelineEvent } from '@/types'
 
 function App() {
-  const { setBackendConnected, setWsConnected } = useAppStore()
-  const { addFlow, setProxyRunning } = useProxyStore()
-  const { addFinding } = useScannerStore()
-  const { addSubdomains } = useReconStore()
+  const { setBackendConnected, activeProject, setActiveProjectData } = useAppStore()
+  const { addFlow, setProxyRunning, addIntruderResult, setIntruderRunning } = useProxyStore()
+  const { addFinding, appendToolOutput, setScanRunning } = useScannerStore()
+  const { addSubdomains, addUrls, addLiveHosts, addPorts } = useReconStore()
+  const { handleEvent: handlePipelineEvent } = usePipelineStore()
+
+  // Fetch active project data whenever activeProject changes
+  useEffect(() => {
+    if (!activeProject) {
+      setActiveProjectData(null)
+      return
+    }
+    api.get<Project>(`/api/projects/${activeProject}`)
+      .then(data => setActiveProjectData(data))
+      .catch(() => setActiveProjectData(null))
+  }, [activeProject])
 
   useEffect(() => {
-    // Check backend health
     const checkHealth = async () => {
       try {
         const res = await fetch(`${API_BASE}/api/health`)
@@ -37,10 +51,8 @@ function App() {
     checkHealth()
     const healthInterval = setInterval(checkHealth, 5000)
 
-    // Connect WebSocket
     wsClient.connect()
 
-    // Subscribe to channels
     const unsubProxy = wsClient.subscribe('proxy_feed', (data) => {
       addFlow(data as HttpFlow)
     })
@@ -50,9 +62,16 @@ function App() {
     })
 
     const unsubRecon = wsClient.subscribe('recon_results', (data) => {
-      const result = data as { type: string; results: SubdomainResult[] }
+      const result = data as { tool: string; type: string; results: any[] }
+
       if (result.type === 'subdomain') {
-        addSubdomains(result.results)
+        addSubdomains(result.results as SubdomainResult[])
+      } else if (result.type === 'live_host') {
+        addLiveHosts(result.results as LiveHostResult[])
+      } else if (result.type === 'url') {
+        addUrls(result.results)
+      } else if (result.type === 'port') {
+        addPorts(result.results)
       }
     })
 
@@ -60,6 +79,31 @@ function App() {
       const status = data as { tool: string; event: string }
       if (status.tool === 'proxy') {
         setProxyRunning(status.event === 'started')
+      }
+      // Track scanner tool running state via WS (HTTP response returns immediately)
+      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch']
+      if (scannerTools.includes(status.tool)) {
+        setScanRunning(status.tool, status.event === 'started')
+      }
+    })
+
+    const unsubPipeline = wsClient.subscribe('pipeline', (data) => {
+      handlePipelineEvent(data as PipelineEvent)
+    })
+
+    const unsubToolOutput = wsClient.subscribe('tool_output', (data) => {
+      const d = data as { tool: string; line: string }
+      if (d.tool && d.line) appendToolOutput(d.tool, d.line)
+    })
+
+    const unsubIntruder = wsClient.subscribe('intruder', (data) => {
+      const d = data as { event: string; job_id: string; total?: number; index?: number; payload?: string; status?: number; length?: number; duration_ms?: number; error?: string | null }
+      if (d.event === 'started') {
+        setIntruderRunning(true, d.job_id, d.total)
+      } else if (d.event === 'result') {
+        addIntruderResult({ index: d.index!, payload: d.payload!, status: d.status!, length: d.length!, duration_ms: d.duration_ms!, error: d.error ?? null })
+      } else if (d.event === 'completed' || d.event === 'cancelled' || d.event === 'error') {
+        setIntruderRunning(false, null)
       }
     })
 
@@ -69,6 +113,9 @@ function App() {
       unsubFindings()
       unsubRecon()
       unsubStatus()
+      unsubPipeline()
+      unsubToolOutput()
+      unsubIntruder()
       wsClient.disconnect()
     }
   }, [])

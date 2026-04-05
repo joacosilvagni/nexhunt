@@ -4,10 +4,10 @@
   "description": "Bug bounty automation platform",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev",
+    "dev": "env -u ELECTRON_RUN_AS_NODE electron-vite dev -- --no-sandbox --disable-gpu",
     "build": "electron-vite build",
-    "preview": "env -u ELECTRON_RUN_AS_NODE electron-vite preview",
-    "start": "env -u ELECTRON_RUN_AS_NODE electron ."
+    "preview": "env -u ELECTRON_RUN_AS_NODE electron-vite preview -- --no-sandbox --disable-gpu",
+    "start": "bash start.sh"
   },
   "keywords": [
     "bug-bounty",

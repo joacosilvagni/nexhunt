@@ -4,26 +4,24 @@ from nexhunt.adapters.base import ToolAdapter
 
 class XsstrikeAdapter(ToolAdapter):
     name = "xsstrike"
-    binary_name = "python3"
+    binary_name = "xsstrike"
     result_type = "finding"
 
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
-        cmd = ["python3", "-m", "xsstrike", "-u", target, "--skip-dom"]
+        cmd = [self.binary_name, "-u", target, "--skip-dom"]
 
         async for line in self._run_subprocess(cmd, timeout=300):
-            yield line  # Raw output
-
             lower = line.lower()
-            if "xss" in lower and ("found" in lower or "vulnerable" in lower):
+            if "xss" in lower and ("found" in lower or "vulnerable" in lower or "payload" in lower):
                 yield {
                     "id": None,
-                    "title": "XSS vulnerability found",
+                    "title": f"[XSStrike] XSS — {target}",
                     "severity": "high",
                     "vuln_type": "xss",
                     "url": target,
                     "parameter": None,
                     "evidence": line.strip(),
-                    "description": "Cross-Site Scripting - XSStrike",
+                    "description": "Cross-Site Scripting detected by XSStrike",
                     "tool": "xsstrike",
                     "template_id": None,
                     "status": "new",

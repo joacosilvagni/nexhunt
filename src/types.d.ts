@@ -126,3 +126,23 @@ export interface PortResult {
   service: string | null
   version: string | null
 }
+
+export interface PipelineEvent {
+  phase: 'katana' | 'dalfox' | 'sqli_probe' | 'js_scan'
+  pipeline?: 'xss' | 'sqli' | 'js_scan'
+  event: 'started' | 'url_found' | 'completed' | 'failed' | 'finding' | 'js_file'
+  message?: string
+  url?: string
+  has_params?: boolean
+  is_form?: boolean
+  total?: number
+  total_urls?: number
+  xss_candidates?: number
+  findings?: number
+  total_findings?: number
+  finding?: Record<string, any>
+  error?: string
+  targets?: number
+  fetched?: boolean
+  js_files?: number
+}

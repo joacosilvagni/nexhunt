@@ -43,3 +43,14 @@ Thumbs.db
 # Test files
 out/main/test_*.js
 out/main/debug.js
+
+# Tool output files
+backend/nikto_*.txt
+*.pem
+*.crt
+*.p12
+*.cer
+
+# Local directories
+kali/
+reports/

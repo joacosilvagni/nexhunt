@@ -48,13 +48,13 @@ class CopilotService:
     async def _chat_claude(self, message: str, context: dict) -> str:
         try:
             import anthropic
-            client = anthropic.Anthropic(api_key=settings.ai_api_key)
+            client = anthropic.AsyncAnthropic(api_key=settings.ai_api_key)
 
             # Build context string
             ctx_str = self._build_context_string(context)
             full_message = f"{ctx_str}\n\n{message}" if ctx_str else message
 
-            response = client.messages.create(
+            response = await client.messages.create(
                 model=settings.ai_model,
                 max_tokens=2048,
                 system=SYSTEM_PROMPT,

@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     # AI
     ai_provider: str = "claude"  # "claude" or "openai"
     ai_api_key: str = ""
-    ai_model: str = "claude-sonnet-4-20250514"
+    ai_model: str = "claude-sonnet-4-6"
 
     class Config:
         env_prefix = "NEXHUNT_"

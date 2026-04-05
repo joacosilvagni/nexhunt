@@ -7,13 +7,12 @@ import { api } from '@/api/http-client'
 import type { ToolStatus } from '@/types'
 import { TOOL_CATEGORIES } from '@/lib/constants'
 import {
-  Settings,
   Wrench,
   CheckCircle,
   XCircle,
   Download,
   Key,
-  Globe
+  Globe,
 } from 'lucide-react'
 
 export function SettingsPage() {
@@ -55,20 +54,53 @@ export function SettingsPage() {
           <h3 className="font-semibold text-zinc-200 mb-4 flex items-center gap-2">
             <Globe size={16} /> Proxy Settings
           </h3>
-          <div className="space-y-3">
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">Proxy Port</label>
-              <Input
-                className="w-32 bg-zinc-900"
-                value={proxyPort}
-                onChange={e => setProxyPort(e.target.value)}
-              />
+          <div className="space-y-4">
+            <div className="flex gap-4 flex-wrap">
+              <div>
+                <label className="text-xs text-zinc-500 mb-1 block">Proxy Port</label>
+                <Input
+                  className="w-32 bg-zinc-900"
+                  value={proxyPort}
+                  onChange={e => setProxyPort(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-zinc-500 mb-1 block">CA Certificate</label>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => window.open(`http://127.0.0.1:17707/api/proxy/cert`, '_blank')}
+                >
+                  <Download size={12} className="mr-1" /> Download CA Cert
+                </Button>
+              </div>
             </div>
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">CA Certificate</label>
-              <Button variant="outline" size="sm">
-                <Download size={12} className="mr-1" /> Download CA Cert
-              </Button>
+
+            {/* Setup guide */}
+            <div className="rounded-lg border border-zinc-700 bg-zinc-900 p-4 space-y-3">
+              <div className="text-xs font-semibold text-zinc-300">FoxyProxy Setup — step by step</div>
+              <ol className="space-y-2">
+                {[
+                  { n: 1, title: 'Start the proxy', desc: 'Go to the Proxy tab and click Start. The proxy listens on port 8080.' },
+                  { n: 2, title: 'Configure FoxyProxy', desc: 'Add a new proxy: Type = HTTP, Host = 127.0.0.1, Port = 8080. Enable it.' },
+                  { n: 3, title: 'HTTP sites', desc: 'Already works. Browse any http:// site — traffic appears in the Proxy tab.' },
+                  { n: 4, title: 'HTTPS sites (CA cert required)', desc: 'Download the cert above. In Firefox: Settings → Privacy & Security → View Certificates → AUTHORITIES tab → Import. Tick "Trust this CA to identify websites". Do NOT use the "Your Certificates" tab — that gives a private key error.' },
+                  { n: 5, title: 'Verify', desc: 'Browse any https:// site. It should load normally and flows appear in NexHunt.' },
+                ].map(step => (
+                  <li key={step.n} className="flex gap-3 text-xs">
+                    <span className="shrink-0 w-5 h-5 rounded-full bg-zinc-700 text-zinc-300 flex items-center justify-center text-[10px] font-bold mt-0.5">
+                      {step.n}
+                    </span>
+                    <div>
+                      <span className="font-medium text-zinc-300">{step.title} — </span>
+                      <span className="text-zinc-500">{step.desc}</span>
+                    </div>
+                  </li>
+                ))}
+              </ol>
+              <div className="text-[11px] text-zinc-600 border-t border-zinc-800 pt-2">
+                Chrome/Chromium: import the cert via chrome://settings/certificates → Authorities → Import
+              </div>
             </div>
           </div>
         </div>

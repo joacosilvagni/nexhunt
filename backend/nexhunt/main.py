@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from nexhunt.database import init_db
-from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket
+from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +57,7 @@ app.include_router(project.router)
 app.include_router(tools.router)
 app.include_router(settings.router)
 app.include_router(websocket.router)
+app.include_router(pipeline.router)
 
 
 @app.get("/api/health")

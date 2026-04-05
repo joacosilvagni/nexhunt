@@ -19,7 +19,7 @@ class ToolAdapter(ABC):
     result_type: str = "generic"  # subdomain | url | port | finding | output
 
     def __init__(self):
-        self._proc: asyncio.subprocess.Process | None = None
+        self._procs: list[asyncio.subprocess.Process] = []
 
     @abstractmethod
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
@@ -27,11 +27,9 @@ class ToolAdapter(ABC):
         ...
 
     async def check_installed(self) -> bool:
-        """Check if the tool binary exists in PATH."""
         return shutil.which(self.binary_name) is not None
 
     async def get_version(self) -> str | None:
-        """Try to get the tool version string."""
         if not await self.check_installed():
             return None
         try:
@@ -42,59 +40,123 @@ class ToolAdapter(ABC):
             )
             stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=5)
             output = (stdout or stderr).decode().strip()
-            # Return first line
             return output.split("\n")[0][:50] if output else None
         except Exception:
             return None
 
     async def cancel(self):
-        """Kill the running subprocess."""
-        if self._proc and self._proc.returncode is None:
-            try:
-                self._proc.terminate()
-                await asyncio.sleep(0.5)
-                if self._proc.returncode is None:
-                    self._proc.kill()
-            except ProcessLookupError:
-                pass
+        for proc in list(self._procs):
+            if proc.returncode is None:
+                try:
+                    proc.terminate()
+                    await asyncio.sleep(0.3)
+                    if proc.returncode is None:
+                        proc.kill()
+                except ProcessLookupError:
+                    pass
 
-    async def _run_subprocess(self, cmd: list[str], timeout: int = 300) -> AsyncIterator[str]:
-        """Run a command, yield stdout lines as they arrive."""
+    async def _run_subprocess(
+        self, cmd: list[str], timeout: int = 300, merge_stderr: bool = False
+    ) -> AsyncIterator[str]:
+        """
+        Run a command and yield stdout lines as they arrive.
+
+        stderr is always drained concurrently to prevent pipe-buffer deadlocks
+        (e.g. gobuster writing many error lines to stderr while results go to stdout).
+
+        If merge_stderr=True, stderr lines are also yielded (prefixed with [STDERR]).
+        """
         logger.debug(f"Running: {' '.join(cmd)}")
-        try:
-            self._proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            assert self._proc.stdout is not None
+        queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-            async def read_lines(stream: StreamReader) -> AsyncIterator[str]:
+        async def _drain(stream: StreamReader, prefix: str = ""):
+            try:
                 while True:
                     line = await stream.readline()
                     if not line:
                         break
-                    yield line.decode("utf-8", errors="replace").strip()
+                    decoded = line.decode("utf-8", errors="replace").strip()
+                    if decoded:
+                        if merge_stderr and prefix:
+                            await queue.put(f"{prefix}{decoded}")
+                        elif not prefix:
+                            await queue.put(decoded)
+                        else:
+                            # stderr — just log it, don't yield
+                            logger.debug(f"[{self.binary_name} stderr] {decoded}")
+            finally:
+                await queue.put(None)  # sentinel
 
-            async for line in read_lines(self._proc.stdout):
-                if line:
-                    yield line
+        proc: asyncio.subprocess.Process | None = None
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            self._procs.append(proc)
+            assert proc.stdout is not None
+            assert proc.stderr is not None
 
-            await asyncio.wait_for(self._proc.wait(), timeout=timeout)
-        except asyncio.TimeoutError:
-            await self.cancel()
-            logger.warning(f"{self.binary_name} timed out after {timeout}s")
+            # Drain stdout and stderr concurrently
+            stdout_task = asyncio.create_task(_drain(proc.stdout, prefix=""))
+            stderr_task = asyncio.create_task(_drain(proc.stderr, prefix="[STDERR] "))
+
+            sentinels_received = 0
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + timeout
+
+            while sentinels_received < 2:
+                remaining = deadline - loop.time()
+                if remaining <= 0:
+                    if proc.returncode is None:
+                        try:
+                            proc.terminate()
+                        except ProcessLookupError:
+                            pass
+                    logger.warning(f"{self.binary_name} timed out after {timeout}s")
+                    break
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=min(remaining, 5))
+                    if item is None:
+                        sentinels_received += 1
+                    else:
+                        yield item
+                except asyncio.TimeoutError:
+                    # Check if process has exited
+                    if proc.returncode is not None:
+                        break
+
+            # Make sure both drain tasks are done
+            await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+            if proc.returncode is None:
+                try:
+                    await asyncio.wait_for(proc.wait(), timeout=5)
+                except asyncio.TimeoutError:
+                    try:
+                        proc.kill()
+                    except ProcessLookupError:
+                        pass
+
         except FileNotFoundError:
             logger.error(f"{self.binary_name} not found in PATH")
+        except asyncio.CancelledError:
+            if proc and proc.returncode is None:
+                try:
+                    proc.kill()
+                except ProcessLookupError:
+                    pass
+            raise
         except Exception as e:
             logger.error(f"Subprocess error for {self.binary_name}: {e}")
         finally:
-            self._proc = None
+            if proc is not None and proc in self._procs:
+                self._procs.remove(proc)
 
 
 # ── Registry ──────────────────────────────────────────────────────────────────
 
-def _build_registry() -> dict[str, ToolAdapter]:
+def _build_registry() -> dict[str, "ToolAdapter"]:
     from nexhunt.adapters.subfinder import SubfinderAdapter
     from nexhunt.adapters.amass import AmassAdapter
     from nexhunt.adapters.httpx_adapter import HttpxAdapter

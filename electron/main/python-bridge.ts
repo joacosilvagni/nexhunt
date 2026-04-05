@@ -30,7 +30,13 @@ export class PythonBridge {
       env: {
         ...process.env,
         NEXHUNT_PORT: String(this.port),
-        PYTHONUNBUFFERED: '1'
+        PYTHONUNBUFFERED: '1',
+        // Ensure Go tools (katana, dalfox, nuclei...) and venv tools (xsstrike, arjun...) are reachable
+        PATH: [
+          `${process.env.HOME}/go/bin`,
+          `${backendDir}/venv/bin`,
+          process.env.PATH
+        ].filter(Boolean).join(':')
       },
       stdio: ['ignore', 'pipe', 'pipe']
     })
