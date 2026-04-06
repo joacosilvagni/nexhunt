@@ -114,7 +114,7 @@ async def _scan_js_content(url: str, content: str) -> list[dict]:
     return findings
 
 
-async def _save_finding(title: str, severity: str, url: str, description: str, evidence: str):
+async def _save_finding(title: str, severity: str, url: str, description: str, evidence: str, project_id: str | None = None):
     try:
         import uuid, datetime
         from nexhunt.database import DefaultSession
@@ -122,6 +122,7 @@ async def _save_finding(title: str, severity: str, url: str, description: str, e
         async with DefaultSession() as session:
             f = Finding(
                 id=str(uuid.uuid4()),
+                project_id=project_id or None,
                 title=title,
                 severity=severity,
                 url=url,
@@ -146,9 +147,10 @@ async def _save_finding(title: str, severity: str, url: str, description: str, e
 
 
 class JsScanRequest(BaseModel):
-    urls: list[str]  # JS file URLs to scan
+    urls: list[str]  # URLs to scan — backend filters for JS
     cookie: str = ""
     max_size_kb: int = 2000  # Skip files larger than this
+    project_id: str = ""
 
 
 @router.post("/scan")
@@ -159,11 +161,15 @@ async def scan_js_files(req: JsScanRequest):
     if not req.urls:
         return {"message": "No URLs provided", "scanned": 0, "findings": []}
 
-    # Filter to JS-looking URLs
-    js_urls = [u for u in req.urls if u.endswith(".js") or ".js?" in u or "/js/" in u]
+    # Filter to JS-looking URLs — generous matching to catch bundles, chunks, etc.
+    js_urls = [u for u in req.urls if (
+        u.endswith(".js") or ".js?" in u or ".js#" in u or
+        "/js/" in u or "/javascript/" in u or
+        ".chunk." in u or ".bundle." in u or "webpack" in u.lower()
+    )]
     if not js_urls:
-        # Try all URLs as fallback (some JS served without .js extension)
-        js_urls = req.urls[:50]
+        # Fallback: scan all provided URLs (some JS served without recognizable extension)
+        js_urls = req.urls[:100]
 
     all_findings = []
     scanned = 0
@@ -220,6 +226,7 @@ async def scan_js_files(req: JsScanRequest):
                     url=f["url"],
                     description=f"Potential {f['secret_type']} detected in JavaScript file.\n\nContext:\n{f['context']}",
                     evidence=f"Value: {f['value']}\nContext: {f['context']}",
+                    project_id=req.project_id or None,
                 )
 
     await ws_manager.broadcast("tool_status", {

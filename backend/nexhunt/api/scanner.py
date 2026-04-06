@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 _SCAN_JOBS: dict[str, asyncio.Task] = {}
 
 
-async def _run_scan_background(job_id: str, tool_name: str, target: str, options: dict):
+async def _run_scan_background(job_id: str, tool_name: str, target: str, options: dict, project_id: str | None = None):
     """Run a scan tool in a background task, independent of the HTTP connection."""
     adapter = get_adapter(tool_name)
     if not adapter:
@@ -70,6 +70,7 @@ async def _run_scan_background(job_id: str, tool_name: str, target: str, options
                 async with DefaultSession() as session:
                     db_finding = Finding(
                         id=finding_id,
+                        project_id=project_id or None,
                         title=result.get("title", ""),
                         severity=result.get("severity", "info"),
                         vuln_type=result.get("vuln_type"),
@@ -88,7 +89,7 @@ async def _run_scan_background(job_id: str, tool_name: str, target: str, options
                 logger.warning(f"Failed to save finding to DB: {db_err}")
 
             findings.append(result)
-            await ws_manager.broadcast("findings", {**result, "tool": tool_name})
+            await ws_manager.broadcast("findings", {**result, "tool": tool_name, "project_id": project_id or ""})
     except asyncio.CancelledError:
         logger.info(f"Scan job {job_id} ({tool_name}) was cancelled")
         await ws_manager.broadcast("tool_status", {
@@ -110,11 +111,11 @@ async def _run_scan_background(job_id: str, tool_name: str, target: str, options
     logger.info(f"[{tool_name}] completed — {len(findings)} findings")
 
 
-def _start_scan(tool_name: str, target: str, options: dict) -> dict:
+def _start_scan(tool_name: str, target: str, options: dict, project_id: str | None = None) -> dict:
     """Kick off a background scan task and return immediately."""
     job_id = str(uuid.uuid4())
     task = asyncio.create_task(
-        _run_scan_background(job_id, tool_name, target, options)
+        _run_scan_background(job_id, tool_name, target, options, project_id)
     )
     _SCAN_JOBS[job_id] = task
     return {"status": "started", "job_id": job_id, "tool": tool_name, "target": target}
@@ -124,12 +125,13 @@ def _start_scan(tool_name: str, target: str, options: dict) -> dict:
 
 @router.post("/nuclei")
 async def run_nuclei(req: ScanRequest):
-    return _start_scan("nuclei", req.target, req.options)
+    return _start_scan("nuclei", req.target, req.options, req.project_id or None)
 
 
 class NucleiBulkRequest(BaseModel):
     targets: list[str]
     options: dict = {}
+    project_id: str = ""
 
 
 @router.post("/nuclei-bulk")
@@ -138,29 +140,28 @@ async def run_nuclei_bulk(req: NucleiBulkRequest):
     if not req.targets:
         return {"error": "No targets provided"}
     opts = {**req.options, "targets": req.targets}
-    # Use first target as label; nuclei reads all from temp file
     label = req.targets[0] if len(req.targets) == 1 else f"{len(req.targets)} hosts"
-    return _start_scan("nuclei", label, opts)
+    return _start_scan("nuclei", label, opts, req.project_id or None)
 
 
 @router.post("/ffuf")
 async def run_ffuf(req: ScanRequest):
-    return _start_scan("ffuf", req.target, req.options)
+    return _start_scan("ffuf", req.target, req.options, req.project_id or None)
 
 
 @router.post("/nikto")
 async def run_nikto(req: ScanRequest):
-    return _start_scan("nikto", req.target, req.options)
+    return _start_scan("nikto", req.target, req.options, req.project_id or None)
 
 
 @router.post("/gobuster")
 async def run_gobuster(req: ScanRequest):
-    return _start_scan("gobuster", req.target, req.options)
+    return _start_scan("gobuster", req.target, req.options, req.project_id or None)
 
 
 @router.post("/dirsearch")
 async def run_dirsearch(req: ScanRequest):
-    return _start_scan("dirsearch", req.target, req.options)
+    return _start_scan("dirsearch", req.target, req.options, req.project_id or None)
 
 
 @router.get("/jobs")
@@ -185,17 +186,23 @@ async def cancel_job(job_id: str):
 # ── Findings CRUD ──────────────────────────────────────────────────────────────
 
 @router.delete("/findings")
-async def delete_all_findings(session: AsyncSession = Depends(get_session)):
-    """Delete all findings from the database."""
+async def delete_all_findings(project_id: str | None = None, session: AsyncSession = Depends(get_session)):
+    """Delete findings — optionally filtered by project_id."""
     from sqlalchemy import delete as sa_delete
-    await session.execute(sa_delete(Finding))
+    q = sa_delete(Finding)
+    if project_id:
+        q = q.where(Finding.project_id == project_id)
+    await session.execute(q)
     await session.commit()
     return {"status": "cleared"}
 
 
 @router.get("/findings")
-async def get_findings(session: AsyncSession = Depends(get_session)):
-    result = await session.execute(select(Finding).order_by(Finding.created_at.desc()))
+async def get_findings(project_id: str | None = None, session: AsyncSession = Depends(get_session)):
+    query = select(Finding).order_by(Finding.created_at.desc())
+    if project_id:
+        query = query.where(Finding.project_id == project_id)
+    result = await session.execute(query)
     findings = result.scalars().all()
     return [
         {

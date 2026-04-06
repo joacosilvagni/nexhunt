@@ -131,7 +131,7 @@ type ToolOptionsMap = Record<string, ToolOpts>
 type ViewMode = 'all' | string  // string = specific tool id
 
 export function ScannerPage() {
-  const { globalTarget, setGlobalTarget } = useAppStore()
+  const { globalTarget, setGlobalTarget, activeProject } = useAppStore()
   const [target, setTargetLocal] = useState(globalTarget)
   useEffect(() => { if (globalTarget && !target) setTargetLocal(globalTarget) }, [globalTarget])
   const setTarget = (v: string) => { setTargetLocal(v); setGlobalTarget(v) }
@@ -161,7 +161,7 @@ export function ScannerPage() {
     if (!target.trim()) return
     try {
       const opts = { ...(toolOptions[toolId] || {}), ...extraOpts }
-      await api.post(`/api/scanner/${toolId}`, { target: target.trim(), options: opts })
+      await api.post(`/api/scanner/${toolId}`, { target: target.trim(), options: opts, project_id: activeProject ?? '' })
     } catch (err) {
       console.error(`Failed to run ${toolId}:`, err)
     }
@@ -341,7 +341,8 @@ export function ScannerPage() {
             onClick={async () => {
               clearFindings()
               setSelectedFinding(null)
-              try { await api.delete('/api/scanner/findings') } catch {}
+              const qs = activeProject ? `?project_id=${activeProject}` : ''
+              try { await api.delete(`/api/scanner/findings${qs}`) } catch {}
             }}
           >
             <Trash2 size={12} className="mr-1" /> Borrar findings

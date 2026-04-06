@@ -25,16 +25,22 @@ function App() {
   const { setBackendConnected, activeProject, setActiveProjectData } = useAppStore()
   const { addFlow, setProxyRunning, addIntruderResult, setIntruderRunning } = useProxyStore()
   const { addFinding, appendToolOutput, setScanRunning, setJobId } = useScannerStore()
-  const { addSubdomains, addUrls, addLiveHosts, addPorts, addScreenshots, setScreenshotRunning } = useReconStore()
+  const { addSubdomains, addUrls, addLiveHosts, addPorts, addScreenshots, setScreenshotRunning, setReconToolRunning, setReconJobId } = useReconStore()
   const { handleEvent: handlePipelineEvent } = usePipelineStore()
+
+  // Load persisted findings from DB — filtered by active project if set
+  const loadFindings = async (projectId: string | null) => {
+    try {
+      const url = projectId ? `/api/scanner/findings?project_id=${projectId}` : '/api/scanner/findings'
+      const findings = await api.get<Finding[]>(url)
+      useScannerStore.getState().setFindings(findings)
+    } catch {}
+  }
 
   // Load persisted data from DB on startup
   useEffect(() => {
     const loadPersistedData = async () => {
-      try {
-        const findings = await api.get<Finding[]>('/api/scanner/findings')
-        findings.forEach(f => addFinding(f))
-      } catch {}
+      await loadFindings(useAppStore.getState().activeProject)
       try {
         const recon = await api.get<Record<string, any[]>>('/api/recon/results')
         if (recon.subdomain) addSubdomains(recon.subdomain)
@@ -47,6 +53,12 @@ function App() {
     // Small delay to let backend start
     setTimeout(loadPersistedData, 2000)
   }, [])
+
+  // Reload findings when active project changes
+  useEffect(() => {
+    useScannerStore.getState().clearFindings()
+    loadFindings(activeProject)
+  }, [activeProject])
 
   // Fetch active project data whenever activeProject changes
   useEffect(() => {
@@ -79,7 +91,12 @@ function App() {
     })
 
     const unsubFindings = wsClient.subscribe('findings', (data) => {
-      addFinding(data as Finding)
+      const f = data as Finding & { project_id?: string }
+      const currentProject = useAppStore.getState().activeProject
+      // Only add finding if it belongs to the active project (or no project filter)
+      if (!currentProject || !f.project_id || f.project_id === currentProject) {
+        addFinding(f)
+      }
     })
 
     const unsubRecon = wsClient.subscribe('recon_results', (data) => {
@@ -115,6 +132,15 @@ function App() {
         setScanRunning(s.tool, s.event === 'started')
         if (s.event === 'started' && s.job_id) setJobId(s.tool, s.job_id)
         if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') setJobId(s.tool, null)
+      }
+
+      // Track recon tool running state + job IDs via WS
+      const reconTools = ['subfinder', 'amass', 'httpx', 'httpx-probe', 'nmap', 'waybackurls', 'gau', 'katana', 'paramspider', 'arjun', 'full_recon']
+      if (reconTools.includes(status.tool)) {
+        const s = data as { tool: string; event: string; job_id?: string }
+        setReconToolRunning(s.tool, s.event === 'started')
+        if (s.event === 'started' && s.job_id) setReconJobId(s.tool, s.job_id)
+        if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') setReconJobId(s.tool, null)
       }
     })
 

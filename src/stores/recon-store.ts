@@ -27,6 +27,8 @@ interface ReconState {
   screenshotRunning: boolean
   screenshotProgress: { done: number; total: number }
   activeJobs: ScanJob[]
+  activeReconTools: Set<string>       // tools currently running
+  activeReconJobIds: Record<string, string>  // tool -> job_id
   addSubdomains: (results: SubdomainResult[]) => void
   addUrls: (results: UrlResult[]) => void
   addPorts: (results: PortResult[]) => void
@@ -34,6 +36,8 @@ interface ReconState {
   addScreenshots: (results: ScreenshotResult[]) => void
   setScreenshotRunning: (running: boolean, progress?: { done: number; total: number }) => void
   updateJob: (job: ScanJob) => void
+  setReconToolRunning: (tool: string, running: boolean) => void
+  setReconJobId: (tool: string, jobId: string | null) => void
   clearRecon: () => void
 }
 
@@ -46,6 +50,8 @@ export const useReconStore = create<ReconState>((set) => ({
   screenshotRunning: false,
   screenshotProgress: { done: 0, total: 0 },
   activeJobs: [],
+  activeReconTools: new Set<string>(),
+  activeReconJobIds: {},
   addSubdomains: (results) => set((state) => ({
     subdomains: [
       ...state.subdomains,
@@ -75,5 +81,16 @@ export const useReconStore = create<ReconState>((set) => ({
       ? state.activeJobs.map(j => j.id === job.id ? job : j)
       : [...state.activeJobs, job]
   })),
-  clearRecon: () => set({ subdomains: [], urls: [], ports: [], liveHosts: [], screenshots: [], activeJobs: [] })
+  setReconToolRunning: (tool, running) => set((state) => {
+    const next = new Set(state.activeReconTools)
+    running ? next.add(tool) : next.delete(tool)
+    return { activeReconTools: next }
+  }),
+  setReconJobId: (tool, jobId) => set((state) => {
+    const next = { ...state.activeReconJobIds }
+    if (jobId === null) delete next[tool]
+    else next[tool] = jobId
+    return { activeReconJobIds: next }
+  }),
+  clearRecon: () => set({ subdomains: [], urls: [], ports: [], liveHosts: [], screenshots: [], activeJobs: [], activeReconTools: new Set(), activeReconJobIds: {} })
 }))

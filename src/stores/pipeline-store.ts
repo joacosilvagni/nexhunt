@@ -77,13 +77,16 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
             if (event.has_params || event.is_form) {
               updated.candidates = [...updated.candidates, event.url]
               updated.log.push(`  [param] ${event.url}`)
-            } else {
-              updated.log.push(`  [url]   ${event.url}`)
+            }
+            // Skip logging plain URLs — too noisy. Stats panel shows the count.
+            // Log a progress ping every 50 URLs to show crawl is alive
+            else if (updated.katanaUrls.length % 50 === 0) {
+              updated.log.push(`  [•] ${updated.katanaUrls.length} URLs crawled so far...`)
             }
           } else if (event.event === 'completed') {
-            const cLabel = run.type === 'js_scan' ? 'JS files' : 'candidates'
+            const cLabel = run.type === 'js_scan' ? 'JS files' : 'param URLs'
             updated.log.push(
-              `[Katana] Done — ${event.total_urls ?? 0} URLs, ${event.xss_candidates ?? 0} ${cLabel}`
+              `[Katana] Done — ${event.total_urls ?? updated.katanaUrls.length} URLs crawled, ${updated.candidates.length} ${cLabel} found`
             )
           } else if (event.event === 'failed') {
             updated.phase = 'failed'
@@ -138,8 +141,8 @@ export const usePipelineStore = create<PipelineState>((set, get) => ({
           if (event.event === 'started') {
             updated.log.push(`[JS] Fetching and analyzing ${event.targets ?? 0} JS files...`)
           } else if (event.event === 'js_file' && event.url) {
-            const status = event.fetched ? 'fetched' : 'failed'
-            updated.log.push(`  [js]  ${event.url} — ${status}`)
+            // Only log failed fetches — successes are too noisy
+            if (!event.fetched) updated.log.push(`  [js]  ${event.url} — failed`)
           } else if (event.event === 'finding' && event.finding) {
             updated.findingsCount += 1
             const f = event.finding

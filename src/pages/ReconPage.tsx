@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import {
   Radar,
   Play,
+  Square,
   Globe,
   Network,
   Link,
@@ -98,14 +99,22 @@ export function ReconPage() {
   const [activeTab, setActiveTab] = useState<ReconTab>('subdomains')
   const { globalTarget, setGlobalTarget } = useAppStore()
   const [target, setTargetLocal] = useState(globalTarget)
-  const [runningTools, setRunningTools] = useState<Set<string>>(new Set())
   const [expandedOptions, setExpandedOptions] = useState<Set<string>>(new Set())
   const [toolOptions, setToolOptions] = useState<ToolOptions>({})
 
   const setTarget = (v: string) => { setTargetLocal(v); setGlobalTarget(v) }
-  const [probingAll, setProbingAll] = useState(false)  // used in handleProbeAll
   const [nucleiRunning, setNucleiRunning] = useState(false)
-  const { subdomains, urls, ports, liveHosts, clearRecon } = useReconStore()
+  const { subdomains, urls, ports, liveHosts, clearRecon, activeReconTools, activeReconJobIds } = useReconStore()
+
+  // Stop a running recon job
+  const cancelReconTool = async (toolId: string) => {
+    const jobId = activeReconJobIds[toolId]
+    if (!jobId) return
+    try { await api.delete(`/api/recon/jobs/${jobId}`) } catch {}
+  }
+
+  // Tool is running if WS reported it as started (source of truth)
+  const isToolRunning = (toolId: string) => activeReconTools.has(toolId)
 
   const handleNucleiBulkScan = async () => {
     if (liveHosts.length === 0) return
@@ -122,39 +131,30 @@ export function ReconPage() {
 
   const handleRunTool = async (toolId: string) => {
     if (!target.trim()) return
-    setRunningTools(prev => new Set(prev).add(toolId))
     try {
       const opts = toolOptions[toolId] || {}
       await api.post(`/api/recon/${toolId}`, { target: target.trim(), options: opts })
     } catch (err) {
       console.error(`Failed to run ${toolId}:`, err)
-    } finally {
-      setRunningTools(prev => { const n = new Set(prev); n.delete(toolId); return n })
     }
   }
 
   const handleProbeAll = async () => {
     if (subdomains.length === 0) return
-    setProbingAll(true)
     try {
       const targets = subdomains.map(s => s.subdomain)
       await api.post('/api/recon/httpx-probe', { targets })
     } catch (err) {
       console.error('Failed to probe all subdomains:', err)
-    } finally {
-      setProbingAll(false)
     }
   }
 
   const handleFullRecon = async () => {
     if (!target.trim()) return
-    setRunningTools(new Set(['subfinder', 'amass', 'waybackurls', 'gau', 'full_recon']))
     try {
       await api.post('/api/recon/full', { target: target.trim() })
     } catch (err) {
       console.error('Failed to start full recon:', err)
-    } finally {
-      setRunningTools(new Set())
     }
   }
 
@@ -173,6 +173,7 @@ export function ReconPage() {
   const [expandedPort, setExpandedPort] = useState<string | null>(null)
   const [screenshotLoading, setScreenshotLoading] = useState(false)
   const { screenshots, screenshotRunning, screenshotProgress } = useReconStore()
+  const probingAll = isToolRunning('httpx-probe')
 
   const handleScreenshotAll = async () => {
     if (liveHosts.length === 0) return
@@ -215,10 +216,10 @@ export function ReconPage() {
               <Button
                 size="sm"
                 onClick={handleFullRecon}
-                disabled={!target.trim() || runningTools.size > 0}
+                disabled={!target.trim() || isToolRunning('full_recon')}
                 title="Full automated recon pipeline"
               >
-                {runningTools.has('full_recon') ? <Loader2 size={14} className="animate-spin" /> : <Radar size={14} />}
+                {isToolRunning('full_recon') ? <Loader2 size={14} className="animate-spin" /> : <Radar size={14} />}
               </Button>
             </div>
             {target && (
@@ -236,7 +237,7 @@ export function ReconPage() {
 
               <div className="space-y-1.5">
                 {stage.tools.map(tool => {
-                  const isRunning = runningTools.has(tool.id)
+                  const isRunning = isToolRunning(tool.id) || (tool.id === 'httpx-probe-all' && probingAll)
                   const hasOpts = expandedOptions.has(tool.id)
                   const opts = toolOptions[tool.id] || {}
                   const isSpecial = (tool as any).special
@@ -244,11 +245,20 @@ export function ReconPage() {
                   return (
                     <div key={tool.id} className="space-y-1">
                       <div className="flex items-center gap-1">
+                        {/* Stop button when running */}
+                        {isRunning && (
+                          <button
+                            onClick={() => cancelReconTool(isSpecial ? 'httpx-probe' : tool.id)}
+                            className="p-1 rounded border border-red-700 text-red-400 hover:bg-red-950/30 transition-colors"
+                            title="Stop"
+                          >
+                            <Square size={10} className="fill-current" />
+                          </button>
+                        )}
                         {/* Run button */}
                         <button
                           disabled={
                             isRunning ||
-                            (isSpecial && probingAll) ||
                             (!isSpecial && !target.trim()) ||
                             (isSpecial && subdomains.length === 0) ||
                             !tool.installed
@@ -264,7 +274,7 @@ export function ReconPage() {
                                 : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500 hover:bg-zinc-800"
                           )}
                         >
-                          {(isRunning || (isSpecial && probingAll)) ? (
+                          {isRunning ? (
                             <Loader2 size={11} className="animate-spin shrink-0" />
                           ) : (
                             <Play size={11} className="shrink-0" />

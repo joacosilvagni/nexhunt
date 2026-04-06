@@ -82,6 +82,16 @@ async def list_screenshots():
     ]
 
 
+@router.delete("/jobs/{job_id}")
+async def cancel_recon_job(job_id: str):
+    """Cancel a running recon job."""
+    task = _RECON_JOBS.get(job_id)
+    if not task:
+        return {"error": "Job not found"}
+    task.cancel()
+    return {"status": "cancelled", "job_id": job_id}
+
+
 @router.delete("/results")
 async def clear_recon_results():
     """Delete all stored recon results from the database."""
