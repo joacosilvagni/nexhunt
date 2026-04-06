@@ -525,7 +525,7 @@ export function ReconPage() {
                       <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden group">
                         <div className="relative aspect-video bg-zinc-950">
                           <img
-                            src={`http://127.0.0.1:17707${s.screenshot_url}`}
+                            src={`${API_BASE}${s.screenshot_url}`}
                             alt={s.url}
                             className="w-full h-full object-cover"
                             loading="lazy"

@@ -49,15 +49,20 @@ class HttpxAdapter(ToolAdapter):
             async for line in self._run_subprocess(cmd, timeout=300):
                 try:
                     data = json.loads(line)
+                    # httpx JSON uses "status-code" (older) or "status_code" (newer)
+                    status = data.get("status-code") or data.get("status_code")
+                    techs = data.get("technologies") or data.get("tech") or []
+                    if isinstance(techs, str):
+                        techs = [techs]
                     yield {
                         "url": data.get("url", ""),
-                        "host": data.get("host", ""),
+                        "host": data.get("host", data.get("input", "")),
                         "source": "httpx",
-                        "status_code": data.get("status-code"),
-                        "content_type": data.get("content-type", ""),
+                        "status_code": status,
+                        "content_type": data.get("content-type", data.get("content_type", "")),
                         "title": data.get("title", ""),
-                        "technologies": data.get("technologies", []),
-                        "ip": data.get("host", ""),
+                        "technologies": techs,
+                        "ip": data.get("a", [data.get("host", "")])[0] if isinstance(data.get("a"), list) else data.get("host", ""),
                         "alive": True,
                     }
                 except (json.JSONDecodeError, KeyError):

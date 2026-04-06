@@ -1,8 +1,49 @@
+import json
+import os
 from fastapi import APIRouter
 from pydantic import BaseModel
 from nexhunt.config import settings
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
+
+_SETTINGS_FILE = os.path.expanduser("~/.nexhunt/settings.json")
+
+
+def _load_persisted():
+    """Load persisted settings from JSON file and apply to runtime settings object."""
+    try:
+        if os.path.exists(_SETTINGS_FILE):
+            with open(_SETTINGS_FILE) as f:
+                data = json.load(f)
+            if data.get("proxy_port"):
+                settings.proxy_port = int(data["proxy_port"])
+            if data.get("ai_provider"):
+                settings.ai_provider = data["ai_provider"]
+            if data.get("ai_model"):
+                settings.ai_model = data["ai_model"]
+            if data.get("ai_groq_key"):
+                settings.ai_groq_key = data["ai_groq_key"]
+            if data.get("ai_api_key"):
+                settings.ai_api_key = data["ai_api_key"]
+    except Exception:
+        pass
+
+
+def _persist():
+    """Write current settings to JSON file."""
+    os.makedirs(os.path.dirname(_SETTINGS_FILE), exist_ok=True)
+    with open(_SETTINGS_FILE, "w") as f:
+        json.dump({
+            "proxy_port": settings.proxy_port,
+            "ai_provider": settings.ai_provider,
+            "ai_model": settings.ai_model,
+            "ai_groq_key": settings.ai_groq_key,
+            "ai_api_key": settings.ai_api_key,
+        }, f, indent=2)
+
+
+# Load persisted settings at import time (called on app startup)
+_load_persisted()
 
 
 class SettingsUpdate(BaseModel):
@@ -10,7 +51,7 @@ class SettingsUpdate(BaseModel):
     ai_provider: str | None = None
     ai_model: str | None = None
     ai_groq_key: str | None = None
-    ai_api_key: str | None = None   # Claude / OpenAI fallback
+    ai_api_key: str | None = None
 
 
 @router.get("")
@@ -19,8 +60,8 @@ async def get_settings():
         "proxy_port": settings.proxy_port,
         "ai_provider": settings.ai_provider,
         "ai_model": settings.ai_model,
+        "ai_groq_key": settings.ai_groq_key,
         "ai_groq_key_set": bool(settings.ai_groq_key),
-        "ai_groq_key": settings.ai_groq_key,   # returned so UI can pre-fill
         "ai_api_key_set": bool(settings.ai_api_key),
     }
 
@@ -37,4 +78,5 @@ async def update_settings(data: SettingsUpdate):
         settings.ai_groq_key = data.ai_groq_key
     if data.ai_api_key is not None:
         settings.ai_api_key = data.ai_api_key
+    _persist()
     return {"status": "updated"}
