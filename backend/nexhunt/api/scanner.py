@@ -184,6 +184,15 @@ async def cancel_job(job_id: str):
 
 # ── Findings CRUD ──────────────────────────────────────────────────────────────
 
+@router.delete("/findings")
+async def delete_all_findings(session: AsyncSession = Depends(get_session)):
+    """Delete all findings from the database."""
+    from sqlalchemy import delete as sa_delete
+    await session.execute(sa_delete(Finding))
+    await session.commit()
+    return {"status": "cleared"}
+
+
 @router.get("/findings")
 async def get_findings(session: AsyncSession = Depends(get_session)):
     result = await session.execute(select(Finding).order_by(Finding.created_at.desc()))

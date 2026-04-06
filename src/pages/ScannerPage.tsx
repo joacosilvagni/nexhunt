@@ -10,6 +10,7 @@ import { api } from '@/api/http-client'
 import { cn } from '@/lib/utils'
 import {
   Play,
+  Square,
   Loader2,
   Settings2,
   Trash2,
@@ -141,7 +142,13 @@ export function ScannerPage() {
   const [selectedFinding, setSelectedFinding] = useState<Finding | null>(null)
   const [terminalTool, setTerminalTool] = useState<string>('')
   const terminalRef = useRef<HTMLPreElement>(null)
-  const { findings, rawOutput, activeScans, clearFindings } = useScannerStore()
+  const { findings, rawOutput, activeScans, activeJobIds, clearFindings } = useScannerStore()
+
+  const cancelScan = async (toolId: string) => {
+    const jobId = activeJobIds[toolId]
+    if (!jobId) return
+    try { await api.delete(`/api/scanner/jobs/${jobId}`) } catch {}
+  }
 
   // Auto-scroll terminal
   useEffect(() => {
@@ -221,6 +228,15 @@ export function ScannerPage() {
                   <div key={tool.id} className="space-y-1">
                     {/* Nuclei uses its own run button inside the preset selector — hide generic one */}
                     <div className={cn("flex items-center gap-1", tool.id === 'nuclei' && "hidden")}>
+                      {isRunning && (
+                        <button
+                          onClick={() => cancelScan(tool.id)}
+                          className="p-1 rounded border border-red-700 text-red-400 hover:bg-red-950/30 transition-colors"
+                          title="Stop"
+                        >
+                          <Square size={10} className="fill-current" />
+                        </button>
+                      )}
                       <button
                         disabled={isRunning || !target.trim() || !tool.installed}
                         onClick={() => handleRunTool(tool.id)}
@@ -322,9 +338,13 @@ export function ScannerPage() {
             variant="ghost"
             size="sm"
             className="text-zinc-600 hover:text-red-400 text-xs"
-            onClick={() => { clearFindings(); setSelectedFinding(null) }}
+            onClick={async () => {
+              clearFindings()
+              setSelectedFinding(null)
+              try { await api.delete('/api/scanner/findings') } catch {}
+            }}
           >
-            <Trash2 size={12} className="mr-1" /> Limpiar findings
+            <Trash2 size={12} className="mr-1" /> Borrar findings
           </Button>
         </div>
 

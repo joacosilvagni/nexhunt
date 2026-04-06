@@ -13,7 +13,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Wifi,
-  WifiOff
+  WifiOff,
+  TerminalSquare,
 } from 'lucide-react'
 
 const navItems = [
@@ -23,7 +24,8 @@ const navItems = [
   { path: '/scanner', icon: ScanSearch, label: 'Scanner' },
   { path: '/exploit', icon: Swords, label: 'Exploit' },
   { path: '/copilot', icon: Bot, label: 'AI Copilot' },
-  { path: '/projects', icon: FolderOpen, label: 'Projects' }
+  { path: '/terminal', icon: TerminalSquare, label: 'Terminal' },
+  { path: '/projects', icon: FolderOpen, label: 'Projects' },
 ]
 
 export function Sidebar() {

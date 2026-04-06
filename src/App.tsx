@@ -9,6 +9,7 @@ import { ExploitPage } from '@/pages/ExploitPage'
 import { CopilotPage } from '@/pages/CopilotPage'
 import { ProjectsPage } from '@/pages/ProjectsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
+import { TerminalPage } from '@/pages/TerminalPage'
 import { useAppStore } from '@/stores/app-store'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useScannerStore } from '@/stores/scanner-store'
@@ -23,7 +24,7 @@ import type { HttpFlow, Finding, SubdomainResult, Project, PipelineEvent } from 
 function App() {
   const { setBackendConnected, activeProject, setActiveProjectData } = useAppStore()
   const { addFlow, setProxyRunning, addIntruderResult, setIntruderRunning } = useProxyStore()
-  const { addFinding, appendToolOutput, setScanRunning } = useScannerStore()
+  const { addFinding, appendToolOutput, setScanRunning, setJobId } = useScannerStore()
   const { addSubdomains, addUrls, addLiveHosts, addPorts, addScreenshots, setScreenshotRunning } = useReconStore()
   const { handleEvent: handlePipelineEvent } = usePipelineStore()
 
@@ -107,10 +108,13 @@ function App() {
         else if (status.event === 'progress') setScreenshotRunning(true, { done: status.done ?? 0, total: status.total ?? 0 })
         else if (status.event === 'completed' || status.event === 'failed') setScreenshotRunning(false)
       }
-      // Track scanner tool running state via WS (HTTP response returns immediately)
+      // Track scanner tool running state + job IDs via WS
       const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch']
       if (scannerTools.includes(status.tool)) {
-        setScanRunning(status.tool, status.event === 'started')
+        const s = data as { tool: string; event: string; job_id?: string }
+        setScanRunning(s.tool, s.event === 'started')
+        if (s.event === 'started' && s.job_id) setJobId(s.tool, s.job_id)
+        if (s.event === 'completed' || s.event === 'failed' || s.event === 'cancelled') setJobId(s.tool, null)
       }
     })
 
@@ -160,6 +164,7 @@ function App() {
           <Route path="/copilot" element={<CopilotPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/terminal" element={<TerminalPage />} />
         </Routes>
       </div>
     </HashRouter>

@@ -82,6 +82,18 @@ async def list_screenshots():
     ]
 
 
+@router.delete("/results")
+async def clear_recon_results():
+    """Delete all stored recon results from the database."""
+    from nexhunt.database import DefaultSession
+    from nexhunt.models.recon_result import ReconResult
+    from sqlalchemy import delete as sa_delete
+    async with DefaultSession() as session:
+        await session.execute(sa_delete(ReconResult))
+        await session.commit()
+    return {"status": "cleared"}
+
+
 @router.get("/results")
 async def get_recon_results():
     """Return all stored recon results grouped by type."""

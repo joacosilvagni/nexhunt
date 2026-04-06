@@ -324,9 +324,12 @@ export function ReconPage() {
             variant="ghost"
             size="sm"
             className="text-zinc-600 hover:text-red-400 text-xs"
-            onClick={clearRecon}
+            onClick={async () => {
+              clearRecon()
+              try { await api.delete('/api/recon/results') } catch {}
+            }}
           >
-            <Trash2 size={12} className="mr-1" /> Limpiar resultados
+            <Trash2 size={12} className="mr-1" /> Borrar todo
           </Button>
         </div>
 

@@ -1,4 +1,5 @@
 import re
+import os
 from typing import AsyncIterator
 from nexhunt.adapters.base import ToolAdapter
 
@@ -12,60 +13,63 @@ class GobusterAdapter(ToolAdapter):
     result_type = "finding"
 
     async def run(self, target: str, options: dict) -> AsyncIterator[dict]:
-        import os
         wordlist = options.get("wordlist", "")
         if not wordlist or not os.path.exists(wordlist):
             wordlist = DEFAULT_WORDLIST if os.path.exists(DEFAULT_WORDLIST) else FALLBACK_WORDLIST
 
         threads = str(options.get("threads", 20))
         extensions = options.get("extensions", "")
+        match_codes = options.get("match_codes", "")
+        exclude_len = options.get("exclude_length", "")
 
+        # stdbuf -oL forces line-buffered stdout so lines stream in real-time
+        # instead of being held in the pipe buffer until process exits
         cmd = [
+            "stdbuf", "-oL",
             self.binary_name, "dir",
             "-u", target,
             "-w", wordlist,
             "-t", threads,
             "--no-color",
             "--no-progress",
-            "--no-error",
-            "--quiet",
         ]
 
-        # Status code filter: blacklist 404 by default, let everything else through
-        # User can override by setting match_codes option
-        match_codes = options.get("match_codes", "")
         if match_codes:
             cmd.extend(["-s", match_codes])
-
-        exclude_len = options.get("exclude_length", "")
         if exclude_len:
             cmd.extend(["--exclude-length", exclude_len])
-
         if extensions:
             cmd.extend(["-x", extensions])
 
-        # Gobuster output format:
+        # Gobuster output lines look like:
         # /admin                (Status: 200) [Size: 3495, Words: 425, Lines: 68, Duration: 1ms]
-        pattern = re.compile(r"^(/[^\s(]*)\s+\(Status:\s*(\d+)\)\s+\[Size:\s*(\d+)")
+        # /.htaccess            (Status: 403) [Size: 276]
+        pattern = re.compile(
+            r"\s*(/?[^\s(]+)\s+\(Status:\s*(\d+)\)\s+\[Size:\s*(\d+)",
+            re.IGNORECASE,
+        )
 
         async for line in self._run_subprocess(cmd, timeout=1800):
             line = line.strip()
             if not line:
                 continue
 
-            match = pattern.match(line)
+            # Always stream raw line to terminal output
+            yield {"_raw": True, "line": line}
+
+            match = pattern.search(line)
             if not match:
                 continue
 
             path, status, size = match.groups()
+            if not path.startswith("/"):
+                path = "/" + path
             status_int = int(status)
 
-            if status_int in (200, 204):
-                severity = "low"
-            else:
-                severity = "info"
+            severity = "low" if status_int in (200, 204) else "info"
 
             yield {
+                "_raw": False,
                 "id": None,
                 "title": f"[Gobuster] {path} ({status})",
                 "severity": severity,
