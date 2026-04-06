@@ -89,6 +89,8 @@ const SCANNER_STAGES = [
           { key: 'wordlist', label: 'Wordlist', placeholder: '/usr/share/wordlists/dirb/common.txt', default: '/usr/share/wordlists/dirb/common.txt' },
           { key: 'extensions', label: 'Extensions', placeholder: 'php,html,js,txt,bak' },
           { key: 'threads', label: 'Threads', placeholder: '10' },
+          { key: 'match_codes', label: 'Status codes', placeholder: '200,204,301,302,307,401,403' },
+          { key: 'exclude_length', label: 'Exclude size', placeholder: '0 (hide empty responses)' },
         ],
         scanTypes: [],
       },

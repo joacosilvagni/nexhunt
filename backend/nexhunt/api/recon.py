@@ -1,5 +1,6 @@
 import asyncio
 import uuid
+import json
 import logging
 from fastapi import APIRouter
 from nexhunt.schemas.recon import ReconRequest, HttpxProbeRequest
@@ -8,6 +9,22 @@ from nexhunt.ws.manager import ws_manager
 
 router = APIRouter(prefix="/api/recon", tags=["recon"])
 logger = logging.getLogger(__name__)
+
+
+# ── Persistence helper ──────────────────────────────────────────────────────────
+
+async def _save_recon_result(result_type: str, target: str, data: dict):
+    """Persist a single recon result to the database."""
+    from nexhunt.database import DefaultSession
+    from nexhunt.models.recon_result import ReconResult
+    try:
+        async with DefaultSession() as session:
+            r = ReconResult(type=result_type, target=target, data=json.dumps(data))
+            session.add(r)
+            await session.commit()
+    except Exception as e:
+        logger.warning(f"Failed to save recon result: {e}")
+
 
 # ── Screenshot endpoints ────────────────────────────────────────────────────────
 
@@ -65,6 +82,25 @@ async def list_screenshots():
     ]
 
 
+@router.get("/results")
+async def get_recon_results():
+    """Return all stored recon results grouped by type."""
+    from nexhunt.database import DefaultSession
+    from nexhunt.models.recon_result import ReconResult
+    from sqlalchemy import select
+    async with DefaultSession() as session:
+        rows = await session.execute(select(ReconResult).order_by(ReconResult.created_at))
+        results = rows.scalars().all()
+    grouped: dict[str, list] = {}
+    for r in results:
+        try:
+            data = json.loads(r.data)
+        except Exception:
+            data = {"raw": r.data}
+        grouped.setdefault(r.type, []).append(data)
+    return grouped
+
+
 async def _run_screenshot(job_id: str, url: str, screenshots_dir: str):
     from nexhunt.adapters.gowitness import GowitnessAdapter
     adapter = GowitnessAdapter()
@@ -77,6 +113,7 @@ async def _run_screenshot(job_id: str, url: str, screenshots_dir: str):
             await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
         else:
             await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result]})
+            await _save_recon_result("screenshot", url, result)
     await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id})
     _RECON_JOBS.pop(job_id, None)
 
@@ -95,6 +132,7 @@ async def _run_screenshots_bulk(job_id: str, urls: list[str], screenshots_dir: s
                 await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
             else:
                 await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result]})
+                await _save_recon_result("screenshot", url, result)
         done += 1
         await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "progress", "done": done, "total": len(urls)})
     await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id, "total": done})
@@ -139,6 +177,7 @@ async def _run_recon_background(job_id: str, tool_name: str, target: str, option
                 "type": adapter.result_type,
                 "results": [result],
             })
+            await _save_recon_result(adapter.result_type, target, result)
     except asyncio.CancelledError:
         logger.info(f"Recon job {job_id} ({tool_name}) was cancelled")
         await ws_manager.broadcast("tool_status", {
@@ -211,6 +250,7 @@ async def run_httpx_probe(req: HttpxProbeRequest):
                 await ws_manager.broadcast("recon_results", {
                     "tool": "httpx", "type": "live_host", "results": [result],
                 })
+                await _save_recon_result("live_host", "", result)
         except Exception as e:
             logger.error(f"httpx-probe error: {e}")
             await ws_manager.broadcast("tool_status", {"tool": "httpx-probe", "event": "failed", "error": str(e)})
@@ -276,6 +316,7 @@ async def run_full_recon(req: ReconRequest):
                 async for r in adapter.run(req.target, {}):
                     out.append(r)
                     await ws_manager.broadcast("recon_results", {"tool": tool_name, "type": "subdomain", "results": [r]})
+                    await _save_recon_result("subdomain", req.target, r)
                 await ws_manager.broadcast("tool_status", {"tool": tool_name, "event": "completed", "result_count": len(out)})
 
         await asyncio.gather(
@@ -303,6 +344,7 @@ async def run_full_recon(req: ReconRequest):
                     async for result in httpx.run("", {"targets": subdomains}):
                         live_count += 1
                         await ws_manager.broadcast("recon_results", {"tool": "httpx", "type": "live_host", "results": [result]})
+                        await _save_recon_result("live_host", req.target, result)
                 except Exception as e:
                     logger.error(f"httpx probe error in full recon: {e}")
                 await ws_manager.broadcast("tool_status", {"tool": "httpx-probe", "event": "completed", "result_count": live_count})

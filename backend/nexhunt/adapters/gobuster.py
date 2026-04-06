@@ -15,12 +15,17 @@ class GobusterAdapter(ToolAdapter):
         threads = str(options.get("threads", 20))
         extensions = options.get("extensions", "")
 
+        # Status codes to show (only interesting ones — skip redirects and auth errors unless overridden)
+        match_codes = options.get("match_codes", "200,204,301,302,307,401,403")
+        # Codes to exclude from findings (but gobuster still finds them — filtered in scanner.py)
+        # Default: user sees 200/204 only as findings; all discovered paths shown in raw output
+
         cmd = [
             self.binary_name, "dir",
             "-u", target,
             "-w", wordlist,
             "-t", threads,
-            "--quiet",
+            "-s", match_codes,
             "--no-color",
             "--no-progress",
             "--no-error",
@@ -28,6 +33,10 @@ class GobusterAdapter(ToolAdapter):
 
         if extensions:
             cmd.extend(["-x", extensions])
+
+        exclude_len = options.get("exclude_length", "")
+        if exclude_len:
+            cmd.extend(["--exclude-length", exclude_len])
 
         # Gobuster v3.6+ result lines look like:
         # /admin                (Status: 200) [Size: 3495, Words: 425, Lines: 68, Duration: 1ms]

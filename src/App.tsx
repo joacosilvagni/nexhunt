@@ -27,6 +27,26 @@ function App() {
   const { addSubdomains, addUrls, addLiveHosts, addPorts, addScreenshots, setScreenshotRunning } = useReconStore()
   const { handleEvent: handlePipelineEvent } = usePipelineStore()
 
+  // Load persisted data from DB on startup
+  useEffect(() => {
+    const loadPersistedData = async () => {
+      try {
+        const findings = await api.get<Finding[]>('/api/scanner/findings')
+        findings.forEach(f => addFinding(f))
+      } catch {}
+      try {
+        const recon = await api.get<Record<string, any[]>>('/api/recon/results')
+        if (recon.subdomain) addSubdomains(recon.subdomain)
+        if (recon.live_host) addLiveHosts(recon.live_host)
+        if (recon.url) addUrls(recon.url)
+        if (recon.port) addPorts(recon.port)
+        if (recon.screenshot) addScreenshots(recon.screenshot)
+      } catch {}
+    }
+    // Small delay to let backend start
+    setTimeout(loadPersistedData, 2000)
+  }, [])
+
   // Fetch active project data whenever activeProject changes
   useEffect(() => {
     if (!activeProject) {

@@ -20,6 +20,8 @@ DefaultSession = async_sessionmaker(_default_engine, class_=AsyncSession, expire
 
 async def init_db():
     """Create all tables in the default database."""
+    # Import all models to ensure tables are registered with metadata
+    from nexhunt.models import finding, recon_result  # noqa
     async with _default_engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 

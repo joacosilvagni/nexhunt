@@ -1,11 +1,12 @@
 import asyncio
 import uuid
+import re
 import logging
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from nexhunt.database import get_session
+from nexhunt.database import get_session, DefaultSession
 from nexhunt.models.finding import Finding
 from nexhunt.schemas.scanner import ScanRequest, FindingUpdate
 from nexhunt.adapters.base import get_adapter
@@ -48,6 +49,44 @@ async def _run_scan_background(job_id: str, tool_name: str, target: str, options
                     "tool": tool_name, "line": result["line"],
                 })
                 continue
+
+            # For gobuster/dirsearch: stream all results to terminal, but only save 200/204 as findings
+            if tool_name in ("gobuster", "dirsearch"):
+                title = result.get("title", "")
+                m = re.search(r'\((\d+)\)', title)
+                if m:
+                    code = int(m.group(1))
+                    if code not in (200, 204):
+                        # Send to raw output terminal so user can see all paths, just not as findings
+                        await ws_manager.broadcast("tool_output", {
+                            "tool": tool_name,
+                            "line": f"{result.get('url', '')} ({code})",
+                        })
+                        continue  # Don't save to DB or send as finding
+
+            # Save to DB before broadcasting so we have an ID to include
+            finding_id = str(uuid.uuid4())
+            try:
+                async with DefaultSession() as session:
+                    db_finding = Finding(
+                        id=finding_id,
+                        title=result.get("title", ""),
+                        severity=result.get("severity", "info"),
+                        vuln_type=result.get("vuln_type"),
+                        url=result.get("url"),
+                        parameter=result.get("parameter"),
+                        evidence=result.get("evidence", "")[:2000] if result.get("evidence") else None,
+                        description=result.get("description"),
+                        tool=tool_name,
+                        template_id=result.get("template_id"),
+                        status=result.get("status", "new"),
+                    )
+                    session.add(db_finding)
+                    await session.commit()
+                result["id"] = finding_id
+            except Exception as db_err:
+                logger.warning(f"Failed to save finding to DB: {db_err}")
+
             findings.append(result)
             await ws_manager.broadcast("findings", {**result, "tool": tool_name})
     except asyncio.CancelledError:
