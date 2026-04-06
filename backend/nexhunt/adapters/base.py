@@ -175,6 +175,7 @@ def _build_registry() -> dict[str, "ToolAdapter"]:
     from nexhunt.adapters.dalfox import DalfoxAdapter
     from nexhunt.adapters.xsstrike import XsstrikeAdapter
     from nexhunt.adapters.commix import CommixAdapter
+    from nexhunt.adapters.gowitness import GowitnessAdapter
 
     adapters = [
         SubfinderAdapter(), AmassAdapter(), HttpxAdapter(), NmapAdapter(),
@@ -182,6 +183,7 @@ def _build_registry() -> dict[str, "ToolAdapter"]:
         ParamspiderAdapter(), ArjunAdapter(),
         NucleiAdapter(), FfufAdapter(), NiktoAdapter(), GobusterAdapter(), DirsearchAdapter(),
         SqlmapAdapter(), DalfoxAdapter(), XsstrikeAdapter(), CommixAdapter(),
+        GowitnessAdapter(),
     ]
     return {a.name: a for a in adapters}
 

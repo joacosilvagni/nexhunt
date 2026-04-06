@@ -9,6 +9,97 @@ from nexhunt.ws.manager import ws_manager
 router = APIRouter(prefix="/api/recon", tags=["recon"])
 logger = logging.getLogger(__name__)
 
+# ── Screenshot endpoints ────────────────────────────────────────────────────────
+
+from pydantic import BaseModel as _BaseModel
+
+class ScreenshotRequest(_BaseModel):
+    url: str
+
+class BulkScreenshotRequest(_BaseModel):
+    urls: list[str]
+
+
+@router.post("/screenshot")
+async def take_screenshot(req: ScreenshotRequest):
+    """Take a single screenshot of a URL using gowitness."""
+    from nexhunt.config import settings as _settings
+    job_id = str(uuid.uuid4())
+    task = asyncio.create_task(_run_screenshot(job_id, req.url, _settings.screenshots_dir))
+    _RECON_JOBS[job_id] = task
+    return {"status": "started", "job_id": job_id, "url": req.url}
+
+
+@router.post("/screenshots-bulk")
+async def take_screenshots_bulk(req: BulkScreenshotRequest):
+    """Take screenshots of multiple URLs."""
+    from nexhunt.config import settings as _settings
+    if not req.urls:
+        return {"error": "No URLs provided"}
+    job_id = str(uuid.uuid4())
+    task = asyncio.create_task(_run_screenshots_bulk(job_id, req.urls, _settings.screenshots_dir))
+    _RECON_JOBS[job_id] = task
+    return {"status": "started", "job_id": job_id, "total": len(req.urls)}
+
+
+@router.get("/screenshots")
+async def list_screenshots():
+    """List all taken screenshots."""
+    import glob as _glob
+    from nexhunt.config import settings as _settings
+    files = sorted(
+        _glob.glob(f"{_settings.screenshots_dir}/*.jpeg") +
+        _glob.glob(f"{_settings.screenshots_dir}/*.jpg") +
+        _glob.glob(f"{_settings.screenshots_dir}/*.png"),
+        key=lambda f: __import__("os").path.getmtime(f),
+        reverse=True,
+    )
+    return [
+        {
+            "filename": __import__("os").path.basename(f),
+            "url": f"/screenshots/{__import__('os').path.basename(f)}",
+            "size": __import__("os").path.getsize(f),
+            "mtime": __import__("os").path.getmtime(f),
+        }
+        for f in files
+    ]
+
+
+async def _run_screenshot(job_id: str, url: str, screenshots_dir: str):
+    from nexhunt.adapters.gowitness import GowitnessAdapter
+    adapter = GowitnessAdapter()
+    if not await adapter.check_installed():
+        await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "failed", "error": "gowitness not installed"})
+        return
+    await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "started", "job_id": job_id})
+    async for result in adapter.run(url, {"screenshots_dir": screenshots_dir}):
+        if result.get("_raw"):
+            await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
+        else:
+            await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result]})
+    await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id})
+    _RECON_JOBS.pop(job_id, None)
+
+
+async def _run_screenshots_bulk(job_id: str, urls: list[str], screenshots_dir: str):
+    from nexhunt.adapters.gowitness import GowitnessAdapter
+    adapter = GowitnessAdapter()
+    if not await adapter.check_installed():
+        await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "failed", "error": "gowitness not installed"})
+        return
+    await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "started", "job_id": job_id, "total": len(urls)})
+    done = 0
+    for url in urls:
+        async for result in adapter.run(url, {"screenshots_dir": screenshots_dir}):
+            if result.get("_raw"):
+                await ws_manager.broadcast("tool_output", {"tool": "gowitness", "line": result["line"]})
+            else:
+                await ws_manager.broadcast("recon_results", {"tool": "gowitness", "type": "screenshot", "results": [result]})
+        done += 1
+        await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "progress", "done": done, "total": len(urls)})
+    await ws_manager.broadcast("tool_status", {"tool": "gowitness", "event": "completed", "job_id": job_id, "total": done})
+    _RECON_JOBS.pop(job_id, None)
+
 # Background job registry
 _RECON_JOBS: dict[str, asyncio.Task] = {}
 

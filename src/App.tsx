@@ -24,7 +24,7 @@ function App() {
   const { setBackendConnected, activeProject, setActiveProjectData } = useAppStore()
   const { addFlow, setProxyRunning, addIntruderResult, setIntruderRunning } = useProxyStore()
   const { addFinding, appendToolOutput, setScanRunning } = useScannerStore()
-  const { addSubdomains, addUrls, addLiveHosts, addPorts } = useReconStore()
+  const { addSubdomains, addUrls, addLiveHosts, addPorts, addScreenshots, setScreenshotRunning } = useReconStore()
   const { handleEvent: handlePipelineEvent } = usePipelineStore()
 
   // Fetch active project data whenever activeProject changes
@@ -72,13 +72,20 @@ function App() {
         addUrls(result.results)
       } else if (result.type === 'port') {
         addPorts(result.results)
+      } else if (result.type === 'screenshot') {
+        addScreenshots(result.results)
       }
     })
 
     const unsubStatus = wsClient.subscribe('tool_status', (data) => {
-      const status = data as { tool: string; event: string }
+      const status = data as { tool: string; event: string; done?: number; total?: number }
       if (status.tool === 'proxy') {
         setProxyRunning(status.event === 'started')
+      }
+      if (status.tool === 'gowitness') {
+        if (status.event === 'started') setScreenshotRunning(true, { done: 0, total: status.total ?? 0 })
+        else if (status.event === 'progress') setScreenshotRunning(true, { done: status.done ?? 0, total: status.total ?? 0 })
+        else if (status.event === 'completed' || status.event === 'failed') setScreenshotRunning(false)
       }
       // Track scanner tool running state via WS (HTTP response returns immediately)
       const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch']

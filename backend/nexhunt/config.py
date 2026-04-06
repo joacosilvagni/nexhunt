@@ -14,10 +14,16 @@ class Settings(BaseSettings):
     # Database
     db_dir: str = os.path.expanduser("~/.nexhunt")
 
-    # AI
-    ai_provider: str = "claude"  # "claude" or "openai"
-    ai_api_key: str = ""
-    ai_model: str = "claude-sonnet-4-6"
+    # AI — Groq (primary, cheap + fast)
+    ai_provider: str = "groq"
+    ai_model: str = "llama-3.3-70b-versatile"
+    ai_groq_key: str = ""
+
+    # AI — fallbacks
+    ai_api_key: str = ""           # Anthropic / OpenAI key
+
+    # Screenshots
+    screenshots_dir: str = os.path.expanduser("~/.nexhunt/screenshots")
 
     class Config:
         env_prefix = "NEXHUNT_"
@@ -25,6 +31,7 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Ensure data directory exists
+# Ensure data directories exist
 os.makedirs(settings.db_dir, exist_ok=True)
 os.makedirs(os.path.join(settings.db_dir, "projects"), exist_ok=True)
+os.makedirs(settings.screenshots_dir, exist_ok=True)

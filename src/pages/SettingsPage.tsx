@@ -13,13 +13,24 @@ import {
   Download,
   Key,
   Globe,
+  Check,
 } from 'lucide-react'
+
+const GROQ_MODELS = [
+  { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B Versatile (recommended)' },
+  { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B Instant (fastest)' },
+  { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B (32k context)' },
+  { id: 'gemma2-9b-it', label: 'Gemma 2 9B (Google)' },
+]
 
 export function SettingsPage() {
   const [tools, setTools] = useState<ToolStatus[]>([])
   const [proxyPort, setProxyPort] = useState('8080')
+  const [aiProvider, setAiProvider] = useState('groq')
+  const [aiModel, setAiModel] = useState('llama-3.3-70b-versatile')
+  const [groqKey, setGroqKey] = useState('')
   const [aiApiKey, setAiApiKey] = useState('')
-  const [aiProvider, setAiProvider] = useState('claude')
+  const [saved, setSaved] = useState(false)
 
   const fetchTools = async () => {
     try {
@@ -32,15 +43,26 @@ export function SettingsPage() {
 
   useEffect(() => {
     fetchTools()
+    // Load current settings
+    api.get<any>('/api/settings').then(s => {
+      if (s.proxy_port) setProxyPort(String(s.proxy_port))
+      if (s.ai_provider) setAiProvider(s.ai_provider)
+      if (s.ai_model) setAiModel(s.ai_model)
+      if (s.ai_groq_key) setGroqKey(s.ai_groq_key)
+    }).catch(() => {})
   }, [])
 
   const handleSaveSettings = async () => {
     try {
       await api.post('/api/settings', {
         proxy_port: parseInt(proxyPort),
-        ai_api_key: aiApiKey,
-        ai_provider: aiProvider
+        ai_provider: aiProvider,
+        ai_model: aiModel,
+        ai_groq_key: groqKey,
+        ai_api_key: aiApiKey || undefined,
       })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 2000)
     } catch (err) {
       console.error('Failed to save settings:', err)
     }
@@ -118,22 +140,55 @@ export function SettingsPage() {
                 value={aiProvider}
                 onChange={e => setAiProvider(e.target.value)}
               >
-                <option value="claude">Claude (Anthropic)</option>
+                <option value="groq">Groq (fast + free tier)</option>
                 <option value="openai">OpenAI</option>
+                <option value="claude">Claude (Anthropic)</option>
               </select>
             </div>
-            <div>
-              <label className="text-xs text-zinc-500 mb-1 block">API Key</label>
-              <Input
-                type="password"
-                className="bg-zinc-900"
-                placeholder="sk-..."
-                value={aiApiKey}
-                onChange={e => setAiApiKey(e.target.value)}
-              />
-            </div>
-            <Button onClick={handleSaveSettings} size="sm">
-              Save Settings
+
+            {aiProvider === 'groq' && (
+              <>
+                <div>
+                  <label className="text-xs text-zinc-500 mb-1 block">Groq API Key</label>
+                  <Input
+                    type="password"
+                    className="bg-zinc-900 font-mono text-sm"
+                    placeholder="gsk_..."
+                    value={groqKey}
+                    onChange={e => setGroqKey(e.target.value)}
+                  />
+                  <p className="text-[11px] text-zinc-600 mt-1">Get a free key at console.groq.com</p>
+                </div>
+                <div>
+                  <label className="text-xs text-zinc-500 mb-1 block">Model</label>
+                  <select
+                    className="h-9 rounded-md border border-input bg-zinc-900 px-3 text-sm text-zinc-300 w-full max-w-sm"
+                    value={aiModel}
+                    onChange={e => setAiModel(e.target.value)}
+                  >
+                    {GROQ_MODELS.map(m => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
+
+            {(aiProvider === 'openai' || aiProvider === 'claude') && (
+              <div>
+                <label className="text-xs text-zinc-500 mb-1 block">API Key</label>
+                <Input
+                  type="password"
+                  className="bg-zinc-900"
+                  placeholder="sk-..."
+                  value={aiApiKey}
+                  onChange={e => setAiApiKey(e.target.value)}
+                />
+              </div>
+            )}
+
+            <Button onClick={handleSaveSettings} size="sm" className="flex items-center gap-2">
+              {saved ? <><Check size={13} /> Saved!</> : 'Save Settings'}
             </Button>
           </div>
         </div>

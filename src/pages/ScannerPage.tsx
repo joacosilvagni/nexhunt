@@ -180,6 +180,13 @@ export function ScannerPage() {
   // All unique tools that produced results
   const activeTools = [...new Set(findings.map(f => f.tool).filter(Boolean))] as string[]
 
+  // Severity summary counts
+  const severityCounts = findings.reduce<Record<string, number>>((acc, f) => {
+    const s = (f.severity || 'info').toLowerCase()
+    acc[s] = (acc[s] || 0) + 1
+    return acc
+  }, {})
+
   return (
     <WorkspaceShell title="Scanner" subtitle="Vulnerability scanning and directory discovery — per-tool output">
       <div className="flex gap-4 h-full min-h-0">
@@ -425,6 +432,25 @@ export function ScannerPage() {
                   : <span className="text-zinc-700">Select a tool above to see its raw output here.</span>
                 }
               </pre>
+            </div>
+          )}
+
+          {/* Severity summary bar */}
+          {viewMode !== 'terminal' && findings.length > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-zinc-900 border border-zinc-800">
+              <span className="text-[10px] text-zinc-600 shrink-0">Findings:</span>
+              {[
+                { key: 'critical', label: 'Critical', color: 'bg-red-950/70 text-red-400 border-red-800' },
+                { key: 'high', label: 'High', color: 'bg-orange-950/70 text-orange-400 border-orange-800' },
+                { key: 'medium', label: 'Medium', color: 'bg-yellow-950/70 text-yellow-400 border-yellow-800' },
+                { key: 'low', label: 'Low', color: 'bg-blue-950/70 text-blue-400 border-blue-800' },
+                { key: 'info', label: 'Info', color: 'bg-zinc-800 text-zinc-400 border-zinc-700' },
+              ].map(({ key, label, color }) => severityCounts[key] ? (
+                <span key={key} className={cn("text-[10px] px-2 py-0.5 rounded border font-medium", color)}>
+                  {severityCounts[key]} {label}
+                </span>
+              ) : null)}
+              <span className="ml-auto text-[10px] text-zinc-600">{findings.length} total</span>
             </div>
           )}
 

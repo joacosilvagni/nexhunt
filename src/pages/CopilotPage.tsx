@@ -1,159 +1,437 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/api/http-client'
 import { cn } from '@/lib/utils'
+import { useScannerStore } from '@/stores/scanner-store'
+import { useReconStore } from '@/stores/recon-store'
+import { useAppStore } from '@/stores/app-store'
 import {
-  Bot,
-  Send,
-  User,
-  Loader2,
-  Lightbulb,
-  FileText,
-  Target,
-  Sparkles
+  Bot, Send, User, Loader2, Sparkles, FileText,
+  Target, Lightbulb, ChevronRight, AlertTriangle,
+  Shield, Globe, Network, RefreshCw, Copy, Check,
 } from 'lucide-react'
 
+// ── Simple markdown renderer ──────────────────────────────────────────────────
+function Markdown({ text }: { text: string }) {
+  const lines = text.split('\n')
+  const elements: React.ReactNode[] = []
+  let i = 0
+
+  while (i < lines.length) {
+    const line = lines[i]
+
+    // Fenced code block
+    if (line.startsWith('```')) {
+      const lang = line.slice(3).trim()
+      const codeLines: string[] = []
+      i++
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i])
+        i++
+      }
+      elements.push(
+        <div key={i} className="my-2 rounded-lg overflow-hidden border border-zinc-700">
+          {lang && <div className="px-3 py-1 text-[10px] text-zinc-500 bg-zinc-800 border-b border-zinc-700 font-mono">{lang}</div>}
+          <pre className="bg-zinc-950 p-3 overflow-x-auto text-[11px] font-mono text-green-300 leading-relaxed">
+            <code>{codeLines.join('\n')}</code>
+          </pre>
+        </div>
+      )
+      i++
+      continue
+    }
+
+    // Headers
+    if (line.startsWith('### ')) {
+      elements.push(<h3 key={i} className="text-sm font-bold text-zinc-200 mt-4 mb-1">{inlineFormat(line.slice(4))}</h3>)
+    } else if (line.startsWith('## ')) {
+      elements.push(<h2 key={i} className="text-base font-bold text-zinc-100 mt-5 mb-2 border-b border-zinc-700 pb-1">{inlineFormat(line.slice(3))}</h2>)
+    } else if (line.startsWith('# ')) {
+      elements.push(<h1 key={i} className="text-lg font-bold text-white mt-5 mb-2">{inlineFormat(line.slice(2))}</h1>)
+    // Horizontal rule
+    } else if (line.match(/^[-*]{3,}$/)) {
+      elements.push(<hr key={i} className="border-zinc-700 my-3" />)
+    // Blockquote
+    } else if (line.startsWith('> ')) {
+      elements.push(
+        <blockquote key={i} className="border-l-2 border-zinc-600 pl-3 my-1 text-zinc-400 italic text-sm">
+          {inlineFormat(line.slice(2))}
+        </blockquote>
+      )
+    // Bullet list
+    } else if (line.match(/^[-*+] /)) {
+      elements.push(
+        <div key={i} className="flex gap-2 text-sm text-zinc-300 leading-relaxed">
+          <span className="text-zinc-600 shrink-0 mt-0.5">•</span>
+          <span>{inlineFormat(line.slice(2))}</span>
+        </div>
+      )
+    // Numbered list
+    } else if (line.match(/^\d+\. /)) {
+      const match = line.match(/^(\d+)\. (.*)/)
+      if (match) {
+        elements.push(
+          <div key={i} className="flex gap-2 text-sm text-zinc-300 leading-relaxed">
+            <span className="text-zinc-500 shrink-0 font-mono text-xs mt-0.5 w-5 text-right">{match[1]}.</span>
+            <span>{inlineFormat(match[2])}</span>
+          </div>
+        )
+      }
+    // Empty line
+    } else if (line.trim() === '') {
+      elements.push(<div key={i} className="h-2" />)
+    // Normal paragraph
+    } else {
+      elements.push(<p key={i} className="text-sm text-zinc-300 leading-relaxed">{inlineFormat(line)}</p>)
+    }
+
+    i++
+  }
+
+  return <div className="space-y-0.5">{elements}</div>
+}
+
+function inlineFormat(text: string): React.ReactNode {
+  // Process: **bold**, *italic*, `code`, and plain text
+  const parts: React.ReactNode[] = []
+  const regex = /(\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g
+  let last = 0
+  let match: RegExpExecArray | null
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > last) parts.push(text.slice(last, match.index))
+    const raw = match[0]
+    if (raw.startsWith('**')) {
+      parts.push(<strong key={match.index} className="font-bold text-zinc-100">{raw.slice(2, -2)}</strong>)
+    } else if (raw.startsWith('*')) {
+      parts.push(<em key={match.index} className="italic text-zinc-300">{raw.slice(1, -1)}</em>)
+    } else if (raw.startsWith('`')) {
+      parts.push(<code key={match.index} className="bg-zinc-800 text-green-400 px-1 py-0.5 rounded text-[11px] font-mono">{raw.slice(1, -1)}</code>)
+    }
+    last = match.index + raw.length
+  }
+  if (last < text.length) parts.push(text.slice(last))
+  return parts.length > 0 ? parts : text
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface ChatMessage {
   role: 'user' | 'assistant'
   content: string
   timestamp: Date
 }
 
-const quickActions = [
-  { icon: Target, label: 'Analyze findings', prompt: 'Analyze my current findings and prioritize them by bounty potential.' },
-  { icon: Lightbulb, label: 'Suggest next steps', prompt: 'Based on the recon data, what should I test next?' },
-  { icon: FileText, label: 'Generate report', prompt: 'Generate a bug bounty report for the most critical finding.' },
-  { icon: Sparkles, label: 'Explain vulnerability', prompt: 'Explain the most recent vulnerability found and how to exploit it further.' }
+// ── Quick actions ─────────────────────────────────────────────────────────────
+const QUICK_ACTIONS = [
+  {
+    icon: Sparkles, label: 'Full Analysis', color: 'text-yellow-400',
+    action: 'analyze',
+    prompt: '',
+  },
+  {
+    icon: Target, label: 'Attack Surface', color: 'text-orange-400',
+    action: 'chat',
+    prompt: 'Based on the session data, map the full attack surface. List every endpoint, parameter, and technology that could be vulnerable. For each, suggest the highest-potential attack type.',
+  },
+  {
+    icon: Lightbulb, label: 'Next Steps', color: 'text-blue-400',
+    action: 'chat',
+    prompt: 'Given the current findings and recon data, what should I test next? Prioritize by bounty potential. Include exact tool commands.',
+  },
+  {
+    icon: FileText, label: 'Generate Reports', color: 'text-green-400',
+    action: 'report',
+    prompt: '',
+  },
+  {
+    icon: AlertTriangle, label: 'Find Attack Chains', color: 'text-red-400',
+    action: 'chat',
+    prompt: 'Analyze the findings and live hosts for potential attack chains. Look for: SSRF → internal access, XSS → account takeover, IDOR → data exposure, open redirect → phishing. Describe each chain with exploitation steps.',
+  },
+  {
+    icon: Shield, label: 'Check False Positives', color: 'text-purple-400',
+    action: 'chat',
+    prompt: 'Review all findings and identify which ones are likely false positives. For each potential FP, explain why and how to verify it manually.',
+  },
 ]
 
+// ── Main component ─────────────────────────────────────────────────────────────
 export function CopilotPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [copied, setCopied] = useState<number | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const { findings } = useScannerStore()
+  const { subdomains, liveHosts, ports, urls } = useReconStore()
+  const { globalTarget } = useAppStore()
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  const sendMessage = async (content: string) => {
-    if (!content.trim() || loading) return
+  const buildContext = useCallback(() => ({
+    target: globalTarget,
+    subdomains,
+    live_hosts: liveHosts,
+    ports,
+    urls: urls.slice(0, 100),
+  }), [globalTarget, subdomains, liveHosts, ports, urls])
 
+  // Severity counts for sidebar
+  const sevCounts = findings.reduce<Record<string, number>>((acc, f) => {
+    acc[f.severity] = (acc[f.severity] || 0) + 1; return acc
+  }, {})
+
+  const sendChat = async (content: string) => {
+    if (!content.trim() || loading) return
     const userMsg: ChatMessage = { role: 'user', content, timestamp: new Date() }
     setMessages(prev => [...prev, userMsg])
     setInput('')
     setLoading(true)
-
     try {
-      const result = await api.post<{ response: string }>('/api/copilot/chat', {
-        message: content
+      const res = await api.post<{ response: string }>('/api/copilot/chat', {
+        message: content,
+        context: buildContext(),
       })
-      const assistantMsg: ChatMessage = {
-        role: 'assistant',
-        content: result.response || 'No response received.',
-        timestamp: new Date()
-      }
-      setMessages(prev => [...prev, assistantMsg])
-    } catch (err) {
-      const errorMsg: ChatMessage = {
-        role: 'assistant',
-        content: `Error: Could not reach the AI backend. Make sure your API key is configured in Settings.\n\n${err}`,
-        timestamp: new Date()
-      }
-      setMessages(prev => [...prev, errorMsg])
+      appendAssistant(res.response || 'No response.')
+    } catch (e) {
+      appendAssistant(`Error: ${e}`)
     } finally {
       setLoading(false)
     }
   }
 
+  const sendAnalyze = async () => {
+    const userMsg: ChatMessage = { role: 'user', content: '🔍 Full session analysis…', timestamp: new Date() }
+    setMessages(prev => [...prev, userMsg])
+    setLoading(true)
+    try {
+      const res = await api.post<{ response: string }>('/api/copilot/analyze', {
+        context: buildContext(),
+      })
+      appendAssistant(res.response || 'No response.')
+    } catch (e) {
+      appendAssistant(`Error: ${e}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const sendReport = async () => {
+    const userMsg: ChatMessage = { role: 'user', content: '📄 Generate bug bounty reports…', timestamp: new Date() }
+    setMessages(prev => [...prev, userMsg])
+    setLoading(true)
+    try {
+      const res = await api.post<{ response: string }>('/api/copilot/report', {
+        context: buildContext(),
+      })
+      appendAssistant(res.response || 'No response.')
+    } catch (e) {
+      appendAssistant(`Error: ${e}`)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleQuickAction = (action: typeof QUICK_ACTIONS[0]) => {
+    if (action.action === 'analyze') sendAnalyze()
+    else if (action.action === 'report') sendReport()
+    else sendChat(action.prompt)
+  }
+
+  const appendAssistant = (content: string) => {
+    setMessages(prev => [...prev, { role: 'assistant', content, timestamp: new Date() }])
+  }
+
+  const copyMessage = (content: string, idx: number) => {
+    navigator.clipboard.writeText(content)
+    setCopied(idx)
+    setTimeout(() => setCopied(null), 1500)
+  }
+
+  const clearChat = () => setMessages([])
+
   return (
-    <WorkspaceShell title="AI Copilot" subtitle="AI-powered analysis and suggestions">
-      <div className="flex flex-col h-full">
-        {/* Messages area */}
-        <div className="flex-1 overflow-auto space-y-4 pb-4">
-          {messages.length === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="rounded-full bg-green-500/10 p-6 mb-4">
-                <Bot size={48} className="text-green-500" />
-              </div>
-              <h2 className="text-xl font-bold text-zinc-200 mb-2">AI Copilot</h2>
-              <p className="text-zinc-500 max-w-md mb-8">
-                I can analyze your findings, suggest next steps, generate reports, and help you
-                understand vulnerabilities. Ask me anything about your targets.
-              </p>
+    <WorkspaceShell title="AI Copilot" subtitle="Powered by Llama 3.3 70B via Groq">
+      <div className="flex gap-4 h-full min-h-0">
 
-              {/* Quick actions */}
-              <div className="grid grid-cols-2 gap-2 max-w-lg">
-                {quickActions.map(action => (
-                  <button
-                    key={action.label}
-                    onClick={() => sendMessage(action.prompt)}
-                    className="flex items-center gap-2 rounded-lg border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-left text-sm text-zinc-300 hover:bg-zinc-800/50 transition-colors"
-                  >
-                    <action.icon size={16} className="text-green-500 shrink-0" />
-                    {action.label}
-                  </button>
-                ))}
+        {/* LEFT: Context sidebar */}
+        <div className="w-52 shrink-0 flex flex-col gap-3 overflow-y-auto">
+
+          {/* Session stats */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 space-y-2">
+            <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">Session Context</p>
+
+            {globalTarget && (
+              <div className="flex items-center gap-1.5 text-[11px]">
+                <Target size={11} className="text-zinc-500 shrink-0" />
+                <span className="text-zinc-300 font-mono truncate">{globalTarget}</span>
               </div>
+            )}
+
+            <div className="space-y-1">
+              <ContextStat icon={Shield} label="Findings" value={findings.length} color="text-red-400" />
+              <ContextStat icon={Globe} label="Live hosts" value={liveHosts.length} color="text-green-400" />
+              <ContextStat icon={Globe} label="Subdomains" value={subdomains.length} color="text-blue-400" />
+              <ContextStat icon={Network} label="Open ports" value={ports.length} color="text-orange-400" />
+              <ContextStat icon={ChevronRight} label="URLs found" value={urls.length} color="text-purple-400" />
+            </div>
+          </div>
+
+          {/* Severity breakdown */}
+          {findings.length > 0 && (
+            <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 space-y-1.5">
+              <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide">Findings by Severity</p>
+              {[
+                { sev: 'critical', color: 'bg-red-500', label: 'Critical' },
+                { sev: 'high', color: 'bg-orange-500', label: 'High' },
+                { sev: 'medium', color: 'bg-yellow-500', label: 'Medium' },
+                { sev: 'low', color: 'bg-blue-500', label: 'Low' },
+                { sev: 'info', color: 'bg-zinc-500', label: 'Info' },
+              ].filter(s => sevCounts[s.sev]).map(s => (
+                <div key={s.sev} className="flex items-center gap-2">
+                  <div className={cn("w-2 h-2 rounded-full shrink-0", s.color)} />
+                  <span className="text-[11px] text-zinc-400 flex-1">{s.label}</span>
+                  <span className="text-[11px] font-mono font-bold text-zinc-300">{sevCounts[s.sev]}</span>
+                </div>
+              ))}
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <div
-              key={i}
-              className={cn(
-                'flex gap-3 max-w-3xl',
-                msg.role === 'user' ? 'ml-auto flex-row-reverse' : ''
-              )}
-            >
-              <div className={cn(
-                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-                msg.role === 'user' ? 'bg-blue-500/10 text-blue-500' : 'bg-green-500/10 text-green-500'
-              )}>
-                {msg.role === 'user' ? <User size={16} /> : <Bot size={16} />}
-              </div>
-              <div className={cn(
-                'rounded-xl px-4 py-3 text-sm',
-                msg.role === 'user'
-                  ? 'bg-blue-600/20 text-zinc-200'
-                  : 'bg-zinc-800 text-zinc-300'
-              )}>
-                <pre className="whitespace-pre-wrap font-sans">{msg.content}</pre>
-              </div>
-            </div>
-          ))}
+          {/* Quick actions */}
+          <div className="rounded-xl border border-zinc-800 bg-zinc-900/50 p-3 space-y-1">
+            <p className="text-[10px] font-semibold text-zinc-500 uppercase tracking-wide mb-2">Quick Actions</p>
+            {QUICK_ACTIONS.map(action => (
+              <button
+                key={action.label}
+                disabled={loading}
+                onClick={() => handleQuickAction(action)}
+                className="w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs text-zinc-300 hover:bg-zinc-800 transition-colors disabled:opacity-50"
+              >
+                <action.icon size={12} className={cn("shrink-0", action.color)} />
+                {action.label}
+              </button>
+            ))}
+          </div>
 
-          {loading && (
-            <div className="flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-green-500/10 text-green-500">
-                <Bot size={16} />
-              </div>
-              <div className="rounded-xl bg-zinc-800 px-4 py-3">
-                <Loader2 size={16} className="animate-spin text-zinc-400" />
-              </div>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
+          <Button variant="ghost" size="sm" className="text-xs text-zinc-600 hover:text-zinc-400" onClick={clearChat}>
+            <RefreshCw size={11} className="mr-1" /> Clear chat
+          </Button>
         </div>
 
-        {/* Input */}
-        <div className="flex items-center gap-2 pt-4 border-t border-zinc-800">
-          <Input
-            placeholder="Ask the AI copilot anything..."
-            className="flex-1 bg-zinc-900"
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && sendMessage(input)}
-            disabled={loading}
-          />
-          <Button onClick={() => sendMessage(input)} disabled={loading || !input.trim()}>
-            <Send size={14} />
-          </Button>
+        {/* RIGHT: Chat */}
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto space-y-4 pb-4 pr-1">
+            {messages.length === 0 && (
+              <div className="flex flex-col items-center justify-center h-full text-center gap-4">
+                <div className="rounded-full bg-green-500/10 border border-green-500/20 p-5">
+                  <Bot size={40} className="text-green-500" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-zinc-200">NexHunt AI Copilot</h2>
+                  <p className="text-sm text-zinc-500 mt-1 max-w-md">
+                    Powered by <span className="text-green-400 font-mono">llama-3.3-70b-versatile</span> via Groq.
+                    I read all your findings, subdomains, and live hosts automatically.
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2 max-w-md w-full">
+                  {QUICK_ACTIONS.map(action => (
+                    <button
+                      key={action.label}
+                      disabled={loading}
+                      onClick={() => handleQuickAction(action)}
+                      className="flex items-center gap-2 rounded-xl border border-zinc-800 bg-zinc-900/60 px-3 py-2.5 text-left text-xs text-zinc-300 hover:bg-zinc-800/80 hover:border-zinc-600 transition-colors"
+                    >
+                      <action.icon size={14} className={cn("shrink-0", action.color)} />
+                      <span>{action.label}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {messages.map((msg, i) => (
+              <div key={i} className={cn('flex gap-3', msg.role === 'user' ? 'flex-row-reverse' : '')}>
+                {/* Avatar */}
+                <div className={cn(
+                  'flex h-7 w-7 shrink-0 items-center justify-center rounded-lg mt-0.5',
+                  msg.role === 'user' ? 'bg-blue-500/15 text-blue-400' : 'bg-green-500/15 text-green-400'
+                )}>
+                  {msg.role === 'user' ? <User size={14} /> : <Bot size={14} />}
+                </div>
+
+                {/* Bubble */}
+                <div className={cn(
+                  'relative group rounded-xl px-4 py-3 max-w-[85%]',
+                  msg.role === 'user'
+                    ? 'bg-blue-600/15 border border-blue-500/20 text-zinc-200'
+                    : 'bg-zinc-800/60 border border-zinc-700/50'
+                )}>
+                  {msg.role === 'user'
+                    ? <p className="text-sm text-zinc-200">{msg.content}</p>
+                    : <Markdown text={msg.content} />
+                  }
+                  {/* Copy button */}
+                  <button
+                    onClick={() => copyMessage(msg.content, i)}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-zinc-600 hover:text-zinc-300"
+                    title="Copy"
+                  >
+                    {copied === i ? <Check size={11} className="text-green-400" /> : <Copy size={11} />}
+                  </button>
+                  <p className="text-[10px] text-zinc-700 mt-2">
+                    {msg.timestamp.toLocaleTimeString()}
+                  </p>
+                </div>
+              </div>
+            ))}
+
+            {loading && (
+              <div className="flex gap-3">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-green-500/15 text-green-400">
+                  <Bot size={14} />
+                </div>
+                <div className="rounded-xl bg-zinc-800/60 border border-zinc-700/50 px-4 py-3 flex items-center gap-2">
+                  <Loader2 size={14} className="animate-spin text-green-400" />
+                  <span className="text-xs text-zinc-500">Analyzing…</span>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Input */}
+          <div className="flex items-center gap-2 pt-3 border-t border-zinc-800">
+            <Input
+              placeholder="Ask anything — findings are loaded automatically…"
+              className="flex-1 bg-zinc-900 text-sm"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChat(input) } }}
+              disabled={loading}
+            />
+            <Button onClick={() => sendChat(input)} disabled={loading || !input.trim()}>
+              {loading ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            </Button>
+          </div>
         </div>
       </div>
     </WorkspaceShell>
+  )
+}
+
+function ContextStat({ icon: Icon, label, value, color }: { icon: any; label: string; value: number; color: string }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Icon size={10} className={cn("shrink-0", color)} />
+      <span className="text-[11px] text-zinc-500 flex-1">{label}</span>
+      <span className={cn("text-[11px] font-mono font-bold", value > 0 ? color : 'text-zinc-700')}>{value}</span>
+    </div>
   )
 }

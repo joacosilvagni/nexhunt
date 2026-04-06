@@ -6,6 +6,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from nexhunt.database import init_db
 from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline
@@ -58,6 +59,11 @@ app.include_router(tools.router)
 app.include_router(settings.router)
 app.include_router(websocket.router)
 app.include_router(pipeline.router)
+
+
+# Serve screenshots as static files
+from nexhunt.config import settings as _cfg
+app.mount("/screenshots", StaticFiles(directory=_cfg.screenshots_dir), name="screenshots")
 
 
 @app.get("/api/health")

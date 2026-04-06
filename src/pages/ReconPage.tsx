@@ -7,6 +7,7 @@ import { ScopeSelector } from '@/components/ui/scope-selector'
 import { useReconStore } from '@/stores/recon-store'
 import { useAppStore } from '@/stores/app-store'
 import { api } from '@/api/http-client'
+import { API_BASE } from '@/lib/constants'
 import { cn } from '@/lib/utils'
 import {
   Radar,
@@ -19,9 +20,11 @@ import {
   Settings2,
   Trash2,
   Zap,
+  Camera,
+  ExternalLink,
 } from 'lucide-react'
 
-type ReconTab = 'subdomains' | 'live_hosts' | 'urls' | 'ports'
+type ReconTab = 'subdomains' | 'live_hosts' | 'urls' | 'ports' | 'screenshots'
 
 // Bug Bounty stages with their tools
 const BB_STAGES = [
@@ -167,11 +170,28 @@ export function ReconPage() {
     setToolOptions(prev => ({ ...prev, [toolId]: { ...(prev[toolId] || {}), [key]: value } }))
   }
 
+  const [screenshotLoading, setScreenshotLoading] = useState(false)
+  const { screenshots, screenshotRunning, screenshotProgress } = useReconStore()
+
+  const handleScreenshotAll = async () => {
+    if (liveHosts.length === 0) return
+    setScreenshotLoading(true)
+    try {
+      const urls = liveHosts.map(h => h.url).filter(Boolean)
+      await api.post('/api/recon/screenshots-bulk', { urls })
+    } catch (err) {
+      console.error('Failed to start bulk screenshots:', err)
+    } finally {
+      setScreenshotLoading(false)
+    }
+  }
+
   const tabs = [
     { id: 'subdomains' as ReconTab, icon: Globe, label: 'Subdomains', count: subdomains.length, color: 'text-blue-400' },
     { id: 'live_hosts' as ReconTab, icon: Wifi, label: 'Live Hosts', count: liveHosts.length, color: 'text-green-400' },
     { id: 'urls' as ReconTab, icon: Link, label: 'URLs', count: urls.length, color: 'text-purple-400' },
     { id: 'ports' as ReconTab, icon: Network, label: 'Ports', count: ports.length, color: 'text-orange-400' },
+    { id: 'screenshots' as ReconTab, icon: Camera, label: 'Screenshots', count: screenshots.length, color: 'text-pink-400' },
   ]
 
   return (
@@ -335,7 +355,7 @@ export function ReconPage() {
 
           {/* Live Hosts — action bar */}
           {activeTab === 'live_hosts' && liveHosts.length > 0 && (
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Button
                 size="sm"
                 variant="outline"
@@ -348,7 +368,21 @@ export function ReconPage() {
                   : <Zap size={12} className="mr-1.5" />}
                 Scan all with Nuclei ({liveHosts.length} hosts)
               </Button>
-              <span className="text-[10px] text-zinc-600">Results appear in Scanner → Findings</span>
+              <Button
+                size="sm"
+                variant="outline"
+                className="border-pink-700 text-pink-400 hover:bg-pink-950/40 text-xs"
+                onClick={handleScreenshotAll}
+                disabled={screenshotLoading || screenshotRunning}
+              >
+                {(screenshotLoading || screenshotRunning)
+                  ? <><Loader2 size={12} className="animate-spin mr-1.5" />
+                    {screenshotRunning && screenshotProgress.total > 0
+                      ? `${screenshotProgress.done}/${screenshotProgress.total}`
+                      : 'Starting...'}</>
+                  : <><Camera size={12} className="mr-1.5" />Screenshot all ({liveHosts.length})</>}
+              </Button>
+              <span className="text-[10px] text-zinc-600">Results in Screenshots tab</span>
             </div>
           )}
 
@@ -476,6 +510,43 @@ export function ReconPage() {
                   )}
                 </tbody>
               </table>
+            )}
+
+            {/* Screenshots tab */}
+            {activeTab === 'screenshots' && (
+              <div className="p-3">
+                {screenshots.length === 0 ? (
+                  <div className="py-12 text-center text-zinc-600 text-xs">
+                    No screenshots yet. Go to Live Hosts tab and click &quot;Screenshot all&quot;.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                    {screenshots.map((s, i) => (
+                      <div key={i} className="rounded-lg border border-zinc-800 bg-zinc-900 overflow-hidden group">
+                        <div className="relative aspect-video bg-zinc-950">
+                          <img
+                            src={`http://127.0.0.1:17707${s.screenshot_url}`}
+                            alt={s.url}
+                            className="w-full h-full object-cover"
+                            loading="lazy"
+                          />
+                          <a
+                            href={s.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="absolute inset-0 flex items-center justify-center bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <ExternalLink size={20} className="text-white" />
+                          </a>
+                        </div>
+                        <div className="px-2 py-1.5">
+                          <div className="text-[10px] text-zinc-400 font-mono truncate" title={s.url}>{s.url}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             )}
 
             {/* Ports tab */}
