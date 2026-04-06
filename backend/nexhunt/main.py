@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from nexhunt.database import init_db
-from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline
+from nexhunt.api import proxy, recon, scanner, exploit, copilot, project, tools, settings, websocket, pipeline, js_scanner
 
 logging.basicConfig(
     level=logging.INFO,
@@ -59,6 +59,7 @@ app.include_router(tools.router)
 app.include_router(settings.router)
 app.include_router(websocket.router)
 app.include_router(pipeline.router)
+app.include_router(js_scanner.router)
 
 
 # Serve screenshots as static files

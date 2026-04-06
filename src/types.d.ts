@@ -123,8 +123,10 @@ export interface UrlResult {
 export interface PortResult {
   ip: string
   port: number
+  proto?: string
   service: string | null
   version: string | null
+  scripts?: string
 }
 
 export interface PipelineEvent {

@@ -25,6 +25,8 @@ def _load_persisted():
                 settings.ai_groq_key = data["ai_groq_key"]
             if data.get("ai_api_key"):
                 settings.ai_api_key = data["ai_api_key"]
+            if data.get("language"):
+                settings.language = data["language"]
     except Exception:
         pass
 
@@ -39,6 +41,7 @@ def _persist():
             "ai_model": settings.ai_model,
             "ai_groq_key": settings.ai_groq_key,
             "ai_api_key": settings.ai_api_key,
+            "language": settings.language,
         }, f, indent=2)
 
 
@@ -52,6 +55,7 @@ class SettingsUpdate(BaseModel):
     ai_model: str | None = None
     ai_groq_key: str | None = None
     ai_api_key: str | None = None
+    language: str | None = None
 
 
 @router.get("")
@@ -63,6 +67,7 @@ async def get_settings():
         "ai_groq_key": settings.ai_groq_key,
         "ai_groq_key_set": bool(settings.ai_groq_key),
         "ai_api_key_set": bool(settings.ai_api_key),
+        "language": settings.language,
     }
 
 
@@ -78,5 +83,7 @@ async def update_settings(data: SettingsUpdate):
         settings.ai_groq_key = data.ai_groq_key
     if data.ai_api_key is not None:
         settings.ai_api_key = data.ai_api_key
+    if data.language is not None:
+        settings.language = data.language
     _persist()
     return {"status": "updated"}

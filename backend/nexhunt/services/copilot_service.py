@@ -57,6 +57,11 @@ When given session data (findings, subdomains, live hosts, ports), think like a 
 
 
 class CopilotService:
+    def _lang_instruction(self) -> str:
+        if settings.language == "es":
+            return "\n\nIMPORTANTE: Responde siempre en español. Usa terminología técnica en inglés cuando sea estándar (nombres de vulnerabilidades, herramientas, comandos), pero explica todo en español."
+        return ""
+
     async def chat(self, message: str, context: dict = {}) -> str:
         """Send a message with full auto-context to the AI."""
         ctx_str = await self._build_full_context(context)
@@ -120,10 +125,11 @@ class CopilotService:
                 api_key=settings.ai_groq_key,
                 base_url="https://api.groq.com/openai/v1",
             )
+            system = SYSTEM_PROMPT + self._lang_instruction()
             resp = await client.chat.completions.create(
                 model=settings.ai_model,
                 messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "system", "content": system},
                     {"role": "user", "content": message},
                 ],
                 max_tokens=4096,

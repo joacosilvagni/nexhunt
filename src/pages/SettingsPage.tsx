@@ -30,6 +30,7 @@ export function SettingsPage() {
   const [aiModel, setAiModel] = useState('llama-3.3-70b-versatile')
   const [groqKey, setGroqKey] = useState('')
   const [aiApiKey, setAiApiKey] = useState('')
+  const [language, setLanguage] = useState('en')
   const [saved, setSaved] = useState(false)
 
   const fetchTools = async () => {
@@ -43,12 +44,12 @@ export function SettingsPage() {
 
   useEffect(() => {
     fetchTools()
-    // Load current settings
     api.get<any>('/api/settings').then(s => {
       if (s.proxy_port) setProxyPort(String(s.proxy_port))
       if (s.ai_provider) setAiProvider(s.ai_provider)
       if (s.ai_model) setAiModel(s.ai_model)
       if (s.ai_groq_key) setGroqKey(s.ai_groq_key)
+      if (s.language) setLanguage(s.language)
     }).catch(() => {})
   }, [])
 
@@ -60,6 +61,7 @@ export function SettingsPage() {
         ai_model: aiModel,
         ai_groq_key: groqKey,
         ai_api_key: aiApiKey || undefined,
+        language,
       })
       setSaved(true)
       setTimeout(() => setSaved(false), 2000)
@@ -186,6 +188,19 @@ export function SettingsPage() {
                 />
               </div>
             )}
+
+            <div>
+              <label className="text-xs text-zinc-500 mb-1 block">Interface &amp; AI Language</label>
+              <select
+                className="h-9 rounded-md border border-input bg-zinc-900 px-3 text-sm text-zinc-300 w-48"
+                value={language}
+                onChange={e => setLanguage(e.target.value)}
+              >
+                <option value="en">English</option>
+                <option value="es">Español</option>
+              </select>
+              <p className="text-[11px] text-zinc-600 mt-1">AI Copilot will respond in this language</p>
+            </div>
 
             <Button onClick={handleSaveSettings} size="sm" className="flex items-center gap-2">
               {saved ? <><Check size={13} /> Saved!</> : 'Save Settings'}

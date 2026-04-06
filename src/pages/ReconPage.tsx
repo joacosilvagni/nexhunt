@@ -103,7 +103,7 @@ export function ReconPage() {
   const [toolOptions, setToolOptions] = useState<ToolOptions>({})
 
   const setTarget = (v: string) => { setTargetLocal(v); setGlobalTarget(v) }
-  const [probingAll, setProbingAll] = useState(false)
+  const [probingAll, setProbingAll] = useState(false)  // used in handleProbeAll
   const [nucleiRunning, setNucleiRunning] = useState(false)
   const { subdomains, urls, ports, liveHosts, clearRecon } = useReconStore()
 
@@ -170,6 +170,7 @@ export function ReconPage() {
     setToolOptions(prev => ({ ...prev, [toolId]: { ...(prev[toolId] || {}), [key]: value } }))
   }
 
+  const [expandedPort, setExpandedPort] = useState<string | null>(null)
   const [screenshotLoading, setScreenshotLoading] = useState(false)
   const { screenshots, screenshotRunning, screenshotProgress } = useReconStore()
 
@@ -247,6 +248,7 @@ export function ReconPage() {
                         <button
                           disabled={
                             isRunning ||
+                            (isSpecial && probingAll) ||
                             (!isSpecial && !target.trim()) ||
                             (isSpecial && subdomains.length === 0) ||
                             !tool.installed
@@ -262,7 +264,7 @@ export function ReconPage() {
                                 : "border-zinc-700 bg-zinc-900 text-zinc-300 hover:border-zinc-500 hover:bg-zinc-800"
                           )}
                         >
-                          {isRunning ? (
+                          {(isRunning || (isSpecial && probingAll)) ? (
                             <Loader2 size={11} className="animate-spin shrink-0" />
                           ) : (
                             <Play size={11} className="shrink-0" />
@@ -558,19 +560,44 @@ export function ReconPage() {
                     <th className="px-3 py-2 w-32">IP/Host</th>
                     <th className="px-3 py-2 w-20">Port</th>
                     <th className="px-3 py-2 w-24">Service</th>
-                    <th className="px-3 py-2">Version</th>
+                    <th className="px-3 py-2">Version / Scripts</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {ports.map((p, i) => (
-                    <tr key={i} className="border-b border-zinc-800/50 hover:bg-zinc-800/30">
-                      <td className="px-3 py-1.5 text-zinc-600">{i + 1}</td>
-                      <td className="px-3 py-1.5 text-zinc-300 font-mono">{p.ip}</td>
-                      <td className="px-3 py-1.5 text-green-500 font-mono font-bold">{p.port}</td>
-                      <td className="px-3 py-1.5 text-zinc-400">{p.service ?? '—'}</td>
-                      <td className="px-3 py-1.5 text-zinc-500">{p.version ?? '—'}</td>
-                    </tr>
-                  ))}
+                  {ports.map((p, i) => {
+                    const portKey = `${p.ip}:${p.port}`
+                    const isExpanded = expandedPort === portKey
+                    return (
+                      <>
+                        <tr
+                          key={i}
+                          onClick={() => setExpandedPort(isExpanded ? null : portKey)}
+                          className="border-b border-zinc-800/50 hover:bg-zinc-800/30 cursor-pointer"
+                        >
+                          <td className="px-3 py-1.5 text-zinc-600">{i + 1}</td>
+                          <td className="px-3 py-1.5 text-zinc-300 font-mono">{p.ip}</td>
+                          <td className="px-3 py-1.5">
+                            <span className="text-green-500 font-mono font-bold">{p.port}</span>
+                            {p.proto && <span className="text-zinc-600 font-mono text-[9px] ml-1">/{p.proto}</span>}
+                          </td>
+                          <td className="px-3 py-1.5 text-zinc-400">{p.service ?? '—'}</td>
+                          <td className="px-3 py-1.5 text-zinc-500 truncate max-w-[260px]">
+                            {p.version ?? '—'}
+                            {p.scripts && <span className="ml-2 text-[9px] text-blue-400">▶ scripts</span>}
+                          </td>
+                        </tr>
+                        {isExpanded && p.scripts && (
+                          <tr key={`${i}-detail`} className="border-b border-zinc-800/50 bg-zinc-900/60">
+                            <td colSpan={5} className="px-4 py-2">
+                              <pre className="text-[10px] font-mono text-blue-300 whitespace-pre-wrap break-words leading-relaxed">
+                                {p.scripts}
+                              </pre>
+                            </td>
+                          </tr>
+                        )}
+                      </>
+                    )
+                  })}
                   {ports.length === 0 && (
                     <tr>
                       <td colSpan={5} className="px-3 py-12 text-center text-zinc-600">

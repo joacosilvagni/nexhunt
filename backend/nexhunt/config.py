@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     # AI — fallbacks
     ai_api_key: str = ""           # Anthropic / OpenAI key
 
+    # UI language
+    language: str = "en"  # "en" | "es"
+
     # Screenshots
     screenshots_dir: str = os.path.expanduser("~/.nexhunt/screenshots")
 
