@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
+import { ContextMenu, menuFromEvent, type ContextMenuState } from '@/components/ui/context-menu'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -13,7 +16,7 @@ import type { RepeaterTab, IntruderResult } from '@/stores/proxy-store'
 import {
   Play, Square, Shield, ShieldOff, Trash2, Search, Send,
   Plus, X, Repeat2, Crosshair, Filter, ChevronDown, ChevronRight,
-  AlertTriangle, CheckCircle, Loader2, RotateCcw,
+  AlertTriangle, CheckCircle, Loader2, RotateCcw, BookOpen, Sparkles,
 } from 'lucide-react'
 
 type Tab = 'history' | 'repeater' | 'intruder'
@@ -171,6 +174,11 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
   sendToRepeater: (f: HttpFlow) => void
   sendToIntruder: (f: HttpFlow) => void
 }) {
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 })
+  const [ctxFlow, setCtxFlow] = useState<HttpFlow | null>(null)
+  const { addHttpFlow } = useWorkspaceStore()
+  const navigate = useNavigate()
+
   return (
     <div className="flex-1 flex flex-col gap-2 min-h-0">
       {/* Filter bar */}
@@ -219,7 +227,9 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
             </thead>
             <tbody>
               {filteredFlows.map((flow, idx) => (
-                <tr key={flow.id} onClick={() => selectFlow(flow.id)}
+                <tr key={flow.id}
+                  onClick={() => selectFlow(flow.id)}
+                  onContextMenu={e => { selectFlow(flow.id); setCtxFlow(flow); setCtxMenu(menuFromEvent(e)) }}
                   className={cn('cursor-pointer border-b border-zinc-800/50 hover:bg-zinc-800/30 transition-colors',
                     selectedFlowId === flow.id && 'bg-zinc-800/60')}>
                   <td className="px-2 py-1.5 text-zinc-600">{idx + 1}</td>
@@ -285,6 +295,39 @@ function HistoryTab({ filteredFlows, selectedFlow, filter, setFilter, selectFlow
           </div>
         )}
       </div>
+
+      {/* Flow context menu */}
+      <ContextMenu
+        state={ctxMenu}
+        onClose={() => setCtxMenu(s => ({ ...s, visible: false }))}
+        items={[
+          {
+            label: 'Send to Workspace',
+            icon: <BookOpen size={12} />,
+            onClick: () => {
+              if (ctxFlow) { addHttpFlow(ctxFlow); navigate('/workspace') }
+            },
+          },
+          {
+            label: 'Analyze with AI',
+            icon: <Sparkles size={12} />,
+            onClick: () => {
+              if (ctxFlow) { addHttpFlow(ctxFlow); navigate('/workspace') }
+            },
+          },
+          { separator: true },
+          {
+            label: 'Send to Repeater',
+            icon: <Repeat2 size={12} />,
+            onClick: () => { if (ctxFlow) sendToRepeater(ctxFlow) },
+          },
+          {
+            label: 'Send to Intruder',
+            icon: <Crosshair size={12} />,
+            onClick: () => { if (ctxFlow) sendToIntruder(ctxFlow) },
+          },
+        ]}
+      />
     </div>
   )
 }

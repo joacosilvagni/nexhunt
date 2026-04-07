@@ -49,7 +49,9 @@ class GobusterAdapter(ToolAdapter):
             re.IGNORECASE,
         )
 
-        async for line in self._run_subprocess(cmd, timeout=1800):
+        # merge_stderr=True so connection errors / auth errors appear in the
+        # terminal instead of being silently dropped into the debug log
+        async for line in self._run_subprocess(cmd, timeout=1800, merge_stderr=True):
             line = line.strip()
             if not line:
                 continue
@@ -66,7 +68,17 @@ class GobusterAdapter(ToolAdapter):
                 path = "/" + path
             status_int = int(status)
 
-            severity = "low" if status_int in (200, 204) else "info"
+            # Severity mapping for directory brute-force results:
+            # 200/204 = real content → medium (potentially exploitable)
+            # 301/302 = redirect   → info
+            # 401/403 = exists but restricted → low (good to know)
+            # everything else      → info
+            if status_int in (200, 204):
+                severity = "medium"
+            elif status_int in (401, 403):
+                severity = "low"
+            else:
+                severity = "info"
 
             yield {
                 "_raw": False,

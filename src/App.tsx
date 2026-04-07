@@ -1,6 +1,7 @@
 import { HashRouter, Routes, Route } from 'react-router-dom'
 import { useEffect } from 'react'
 import { Sidebar } from '@/components/layout/Sidebar'
+import { ProjectGate } from '@/components/layout/ProjectGate'
 import { DashboardPage } from '@/pages/DashboardPage'
 import { ProxyPage } from '@/pages/ProxyPage'
 import { ReconPage } from '@/pages/ReconPage'
@@ -10,6 +11,7 @@ import { CopilotPage } from '@/pages/CopilotPage'
 import { ProjectsPage } from '@/pages/ProjectsPage'
 import { SettingsPage } from '@/pages/SettingsPage'
 import { TerminalPage } from '@/pages/TerminalPage'
+import { WorkspacePage } from '@/pages/WorkspacePage'
 import { useAppStore } from '@/stores/app-store'
 import { useProxyStore } from '@/stores/proxy-store'
 import { useScannerStore } from '@/stores/scanner-store'
@@ -28,11 +30,14 @@ function App() {
   const { addSubdomains, addUrls, addLiveHosts, addPorts, addScreenshots, setScreenshotRunning, setReconToolRunning, setReconJobId } = useReconStore()
   const { handleEvent: handlePipelineEvent } = usePipelineStore()
 
-  // Load persisted findings from DB — filtered by active project if set
+  // Load findings from DB — only when a project is active
   const loadFindings = async (projectId: string | null) => {
+    if (!projectId) {
+      useScannerStore.getState().setFindings([])
+      return
+    }
     try {
-      const url = projectId ? `/api/scanner/findings?project_id=${projectId}` : '/api/scanner/findings'
-      const findings = await api.get<Finding[]>(url)
+      const findings = await api.get<Finding[]>(`/api/scanner/findings?project_id=${projectId}`)
       useScannerStore.getState().setFindings(findings)
     } catch {}
   }
@@ -125,8 +130,8 @@ function App() {
         else if (status.event === 'progress') setScreenshotRunning(true, { done: status.done ?? 0, total: status.total ?? 0 })
         else if (status.event === 'completed' || status.event === 'failed') setScreenshotRunning(false)
       }
-      // Track scanner tool running state + job IDs via WS
-      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch']
+      // Track scanner + exploit tool running state + job IDs via WS
+      const scannerTools = ['nuclei', 'ffuf', 'nikto', 'gobuster', 'dirsearch', 'sqlmap', 'dalfox', 'xsstrike', 'commix']
       if (scannerTools.includes(status.tool)) {
         const s = data as { tool: string; event: string; job_id?: string }
         setScanRunning(s.tool, s.event === 'started')
@@ -182,14 +187,18 @@ function App() {
       <div className="flex h-screen w-screen overflow-hidden bg-zinc-950">
         <Sidebar />
         <Routes>
+          {/* Always accessible */}
           <Route path="/" element={<DashboardPage />} />
-          <Route path="/proxy" element={<ProxyPage />} />
-          <Route path="/recon" element={<ReconPage />} />
-          <Route path="/scanner" element={<ScannerPage />} />
-          <Route path="/exploit" element={<ExploitPage />} />
-          <Route path="/copilot" element={<CopilotPage />} />
           <Route path="/projects" element={<ProjectsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+
+          {/* Project-required pages — blocked by ProjectGate when no project is active */}
+          <Route path="/proxy" element={<ProjectGate><ProxyPage /></ProjectGate>} />
+          <Route path="/recon" element={<ProjectGate><ReconPage /></ProjectGate>} />
+          <Route path="/scanner" element={<ProjectGate><ScannerPage /></ProjectGate>} />
+          <Route path="/exploit" element={<ProjectGate><ExploitPage /></ProjectGate>} />
+          <Route path="/workspace" element={<ProjectGate><WorkspacePage /></ProjectGate>} />
+          <Route path="/copilot" element={<CopilotPage />} />
           <Route path="/terminal" element={<TerminalPage />} />
         </Routes>
       </div>

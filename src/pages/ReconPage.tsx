@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import { WorkspaceShell } from '@/components/layout/WorkspaceShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -23,7 +23,21 @@ import {
   Zap,
   Camera,
   ExternalLink,
+  Download,
+  ChevronDown,
+  Server,
 } from 'lucide-react'
+
+// ─── Export helper ─────────────────────────────────────────────────────────────
+function downloadText(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/plain' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  a.click()
+  URL.revokeObjectURL(url)
+}
 
 type ReconTab = 'subdomains' | 'live_hosts' | 'urls' | 'ports' | 'screenshots'
 
@@ -101,6 +115,22 @@ export function ReconPage() {
   const [target, setTargetLocal] = useState(globalTarget)
   const [expandedOptions, setExpandedOptions] = useState<Set<string>>(new Set())
   const [toolOptions, setToolOptions] = useState<ToolOptions>({})
+  const [liveHostPickerOpen, setLiveHostPickerOpen] = useState(false)
+  const [liveHostFilter, setLiveHostFilter] = useState('')
+  const liveHostPickerRef = useRef<HTMLDivElement>(null)
+
+  // Close live host picker on outside click
+  useEffect(() => {
+    if (!liveHostPickerOpen) return
+    const handler = (e: MouseEvent) => {
+      if (liveHostPickerRef.current && !liveHostPickerRef.current.contains(e.target as Node)) {
+        setLiveHostPickerOpen(false)
+        setLiveHostFilter('')
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [liveHostPickerOpen])
 
   const setTarget = (v: string) => { setTargetLocal(v); setGlobalTarget(v) }
   const [nucleiRunning, setNucleiRunning] = useState(false)
@@ -225,6 +255,65 @@ export function ReconPage() {
             {target && (
               <div className="text-[10px] text-zinc-600 font-mono truncate">Target: {target}</div>
             )}
+
+            {/* Live host quick-select — visible once httpx finds hosts */}
+            {liveHosts.length > 0 && (
+              <div className="relative" ref={liveHostPickerRef}>
+                <button
+                  onClick={() => setLiveHostPickerOpen(v => !v)}
+                  className="w-full flex items-center justify-between gap-1.5 px-2.5 py-1.5 rounded-lg border border-green-700/50 bg-green-950/20 text-xs text-green-400 hover:border-green-600 hover:bg-green-950/30 transition-colors"
+                >
+                  <div className="flex items-center gap-1.5">
+                    <Server size={11} />
+                    <span>{liveHosts.length} live hosts</span>
+                    {target && liveHosts.some(h => h.url === target) && (
+                      <span className="text-[9px] text-green-600">· selected</span>
+                    )}
+                  </div>
+                  <ChevronDown size={11} className={cn('transition-transform', liveHostPickerOpen && 'rotate-180')} />
+                </button>
+
+                {liveHostPickerOpen && (
+                  <div className="absolute top-full left-0 right-0 mt-1 z-50 rounded-lg border border-zinc-700 bg-zinc-900 shadow-xl shadow-black/50 overflow-hidden">
+                    <div className="p-1.5 border-b border-zinc-800">
+                      <input
+                        autoFocus
+                        type="text"
+                        placeholder="Filter hosts..."
+                        value={liveHostFilter}
+                        onChange={e => setLiveHostFilter(e.target.value)}
+                        className="w-full text-[10px] bg-zinc-950 border border-zinc-800 rounded px-2 py-1 text-zinc-300 placeholder:text-zinc-700 focus:outline-none"
+                      />
+                    </div>
+                    <div className="max-h-48 overflow-y-auto">
+                      {liveHosts
+                        .filter(h => !liveHostFilter || h.url.toLowerCase().includes(liveHostFilter.toLowerCase()))
+                        .map((h, i) => (
+                          <button
+                            key={i}
+                            onClick={() => { setTarget(h.url); setLiveHostPickerOpen(false); setLiveHostFilter('') }}
+                            className={cn(
+                              'w-full flex items-center gap-2 px-2.5 py-1.5 text-left hover:bg-zinc-800 transition-colors',
+                              target === h.url && 'bg-zinc-800'
+                            )}
+                          >
+                            <span className={cn('text-[10px] font-mono font-bold shrink-0',
+                              h.status_code && h.status_code < 300 ? 'text-green-400' :
+                              h.status_code && h.status_code < 400 ? 'text-yellow-400' : 'text-orange-400'
+                            )}>
+                              {h.status_code}
+                            </span>
+                            <span className="text-[10px] text-zinc-300 font-mono truncate flex-1">{h.url}</span>
+                            {h.title && (
+                              <span className="text-[9px] text-zinc-600 truncate max-w-[80px] shrink-0">{h.title}</span>
+                            )}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Stages */}
@@ -346,26 +435,56 @@ export function ReconPage() {
         {/* RIGHT PANEL — Results */}
         <div className="flex-1 flex flex-col gap-3 min-h-0 min-w-0">
 
-          {/* Tabs */}
-          <div className="flex gap-1 bg-zinc-900 rounded-lg p-1 w-fit">
-            {tabs.map(tab => (
+          {/* Tabs + Export button */}
+          <div className="flex items-center gap-2">
+            <div className="flex gap-1 bg-zinc-900 rounded-lg p-1">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={cn(
+                    'flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
+                    activeTab === tab.id
+                      ? 'bg-zinc-700 text-zinc-100'
+                      : 'text-zinc-400 hover:text-zinc-200'
+                  )}
+                >
+                  <tab.icon size={12} className={activeTab === tab.id ? tab.color : ''} />
+                  {tab.label}
+                  {tab.count > 0 && (
+                    <Badge variant="secondary" className="h-4 px-1 text-[10px]">{tab.count}</Badge>
+                  )}
+                </button>
+              ))}
+            </div>
+
+            {/* Export button — only when there's data */}
+            {(activeTab === 'subdomains' && subdomains.length > 0) ||
+             (activeTab === 'live_hosts' && liveHosts.length > 0) ||
+             (activeTab === 'urls' && urls.length > 0) ||
+             (activeTab === 'ports' && ports.length > 0) ? (
               <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  'flex items-center gap-2 px-3 py-1.5 text-xs font-medium rounded-md transition-colors',
-                  activeTab === tab.id
-                    ? 'bg-zinc-700 text-zinc-100'
-                    : 'text-zinc-400 hover:text-zinc-200'
-                )}
+                onClick={() => {
+                  if (activeTab === 'subdomains') {
+                    downloadText(subdomains.map(s => s.subdomain).join('\n'), 'subdomains.txt')
+                  } else if (activeTab === 'live_hosts') {
+                    const lines = liveHosts.map(h =>
+                      `${h.url}\t${h.status_code ?? ''}\t${h.title ?? ''}\t${(h.technologies ?? []).join(',')}`
+                    )
+                    downloadText(['URL\tStatus\tTitle\tTechnologies', ...lines].join('\n'), 'live_hosts.txt')
+                  } else if (activeTab === 'urls') {
+                    downloadText(urls.map(u => u.url).join('\n'), 'urls.txt')
+                  } else if (activeTab === 'ports') {
+                    const lines = ports.map(p => `${p.ip}\t${p.port}\t${p.proto ?? 'tcp'}\t${p.service ?? ''}\t${p.version ?? ''}`)
+                    downloadText(['IP\tPort\tProto\tService\tVersion', ...lines].join('\n'), 'ports.txt')
+                  }
+                }}
+                className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-zinc-700 text-zinc-400 hover:text-zinc-200 hover:border-zinc-600 text-[10px] font-medium transition-colors"
+                title="Export to text file"
               >
-                <tab.icon size={12} className={activeTab === tab.id ? tab.color : ''} />
-                {tab.label}
-                {tab.count > 0 && (
-                  <Badge variant="secondary" className="h-4 px-1 text-[10px]">{tab.count}</Badge>
-                )}
+                <Download size={11} /> Export
               </button>
-            ))}
+            ) : null}
           </div>
 
           {/* Live Hosts — action bar */}

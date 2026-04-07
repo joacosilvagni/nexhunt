@@ -4,10 +4,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ScopeSelector } from '@/components/ui/scope-selector'
+import { ContextMenu, menuFromEvent, type ContextMenuState } from '@/components/ui/context-menu'
 import { useScannerStore } from '@/stores/scanner-store'
 import { useAppStore } from '@/stores/app-store'
+import { useWorkspaceStore } from '@/stores/workspace-store'
 import { api } from '@/api/http-client'
 import { cn } from '@/lib/utils'
+import { useNavigate } from 'react-router-dom'
 import {
   Play,
   Square,
@@ -19,6 +22,8 @@ import {
   Shield,
   Server,
   Terminal,
+  BookOpen,
+  Sparkles,
 } from 'lucide-react'
 import type { Finding } from '@/types'
 
@@ -143,6 +148,12 @@ export function ScannerPage() {
   const [terminalTool, setTerminalTool] = useState<string>('')
   const terminalRef = useRef<HTMLPreElement>(null)
   const { findings, rawOutput, activeScans, activeJobIds, clearFindings } = useScannerStore()
+
+  // Context menu for findings
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState>({ visible: false, x: 0, y: 0 })
+  const [ctxFinding, setCtxFinding] = useState<Finding | null>(null)
+  const { addFinding: addToWorkspace } = useWorkspaceStore()
+  const navigate = useNavigate()
 
   const cancelScan = async (toolId: string) => {
     const jobId = activeJobIds[toolId]
@@ -496,6 +507,7 @@ export function ScannerPage() {
                     <tr
                       key={f.id ?? i}
                       onClick={() => setSelectedFinding(selectedFinding?.id === f.id ? null : f)}
+                      onContextMenu={e => { setCtxFinding(f); setCtxMenu(menuFromEvent(e)) }}
                       className={cn(
                         "border-b border-zinc-800/50 cursor-pointer transition-colors",
                         selectedFinding?.id === f.id ? "bg-zinc-800" : "hover:bg-zinc-800/40"
@@ -574,6 +586,39 @@ export function ScannerPage() {
           </div>}
         </div>
       </div>
+
+      {/* Finding context menu */}
+      <ContextMenu
+        state={ctxMenu}
+        onClose={() => setCtxMenu(s => ({ ...s, visible: false }))}
+        items={[
+          {
+            label: 'Send to Workspace',
+            icon: <BookOpen size={12} />,
+            onClick: () => {
+              if (ctxFinding) {
+                addToWorkspace(ctxFinding)
+                navigate('/workspace')
+              }
+            },
+          },
+          {
+            label: 'Analyze with AI',
+            icon: <Sparkles size={12} />,
+            onClick: () => {
+              if (ctxFinding) {
+                addToWorkspace(ctxFinding)
+                navigate('/workspace')
+              }
+            },
+          },
+          { separator: true },
+          {
+            label: 'Select finding',
+            onClick: () => { if (ctxFinding) setSelectedFinding(ctxFinding) },
+          },
+        ]}
+      />
     </WorkspaceShell>
   )
 }

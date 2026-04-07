@@ -50,19 +50,19 @@ async def _run_scan_background(job_id: str, tool_name: str, target: str, options
                 })
                 continue
 
-            # For gobuster/dirsearch: stream all results to terminal, but only save 200/204 as findings
+            # For gobuster/dirsearch: save 200, 204, 401, 403 as findings.
+            # 301/302 redirects are terminal-only (noisy, rarely actionable).
             if tool_name in ("gobuster", "dirsearch"):
                 title = result.get("title", "")
                 m = re.search(r'\((\d+)\)', title)
                 if m:
                     code = int(m.group(1))
-                    if code not in (200, 204):
-                        # Send to raw output terminal so user can see all paths, just not as findings
+                    if code in (301, 302):
                         await ws_manager.broadcast("tool_output", {
                             "tool": tool_name,
-                            "line": f"{result.get('url', '')} ({code})",
+                            "line": f"→ {result.get('url', '')} ({code})",
                         })
-                        continue  # Don't save to DB or send as finding
+                        continue  # Don't save 301/302 to DB — too noisy
 
             # Save to DB before broadcasting so we have an ID to include
             finding_id = str(uuid.uuid4())
