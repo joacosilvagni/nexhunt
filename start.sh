@@ -36,4 +36,7 @@ exec env -u ELECTRON_RUN_AS_NODE \
   XAUTHORITY="$XAUTHORITY" \
   node_modules/.bin/electron . \
   --no-sandbox \
-  --disable-gpu
+  --disable-gpu \
+  --disable-gpu-sandbox \
+  --in-process-gpu \
+  --disable-dev-shm-usage
